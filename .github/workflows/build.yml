@@ -41,13 +41,22 @@ jobs:
         shell: bash
         run: |
           cd dist
-          if [ "$RUNNER_OS" = "Windows" ]; then 7z a ../LazyMixtapeMaker-${{ matrix.name }}.zip LazyMixtapeMaker;
-          elif [ "$RUNNER_OS" = "macOS" ]; then ditto -c -k --keepParent "Lazy Mixtape Maker.app" ../LazyMixtapeMaker-${{ matrix.name }}.zip;
-          else tar czf ../LazyMixtapeMaker-${{ matrix.name }}.tar.gz LazyMixtapeMaker; fi
+          # Create a dedicated export folder for clean asset matching
+          mkdir -p ../artifacts-to-upload
+          
+          if [ "$RUNNER_OS" = "Windows" ]; then 
+            7z a ../artifacts-to-upload/LazyMixtapeMaker-Windows.zip LazyMixtapeMaker;
+          elif [ "$RUNNER_OS" = "macOS" ]; then 
+            ditto -c -k --keepParent "Lazy Mixtape Maker.app" ../artifacts-to-upload/LazyMixtapeMaker-macOS.zip;
+          else 
+            tar czf ../artifacts-to-upload/LazyMixtapeMaker-Linux.tar.gz LazyMixtapeMaker; 
+          fi
+          
       - uses: actions/upload-artifact@v4
         with:
           name: LazyMixtapeMaker-${{ matrix.name }}
-          path: "LazyMixtapeMaker-*"
+          path: artifacts-to-upload/*  # Only upload the compressed archives
+
 
   release:
     # Collects the three builds into a DRAFT GitHub release (nothing is public until you click Publish).
