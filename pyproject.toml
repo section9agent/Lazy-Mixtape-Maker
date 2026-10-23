@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lazy-mixtape-maker"
+version = "0.1.0"
+description = "Offline auto-DJ: analyses your music and blends it into one seamless mixtape, with cue sheet and Shadertoy video."
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26", "scipy>=1.11", "librosa>=0.10", "soundfile>=0.13", "mutagen>=1.47",
+  "pillow>=10", "moderngl>=5.10", "PySide6-Essentials>=6.6", "miniaudio>=1.60", "imageio-ffmpeg>=0.5", "pyloudnorm>=0.1.1",
+]
+
+[project.scripts]
+lmm = "lazy_mixtape_maker.__main__:main"
+lazy-mixtape-maker = "lazy_mixtape_maker.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["lazy_mixtape_maker*"]
+
+[tool.setuptools.package-data]
+lazy_mixtape_maker = ["assets/*"]

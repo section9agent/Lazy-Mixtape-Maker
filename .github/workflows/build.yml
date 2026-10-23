@@ -1,0 +1,72 @@
+name: Build apps
+on:
+  push: { tags: ["v*"] }
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag for the draft (e.g. v0.2.0). Leave empty for a build-number tag."
+        required: false
+        default: ""
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: Windows }
+          - { os: macos-latest,   name: macOS }
+          - { os: ubuntu-22.04,   name: Linux }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Linux GL/audio libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libasound2-dev libpulse0
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -x -q
+        env:
+          QT_QPA_PLATFORM: offscreen
+      - run: pyinstaller packaging/lmm.spec --noconfirm
+      - name: Zip
+        shell: bash
+        run: |
+          cd dist
+          if [ "$RUNNER_OS" = "Windows" ]; then 7z a ../LazyMixtapeMaker-${{ matrix.name }}.zip LazyMixtapeMaker;
+          elif [ "$RUNNER_OS" = "macOS" ]; then ditto -c -k --keepParent "Lazy Mixtape Maker.app" ../LazyMixtapeMaker-${{ matrix.name }}.zip;
+          else tar czf ../LazyMixtapeMaker-${{ matrix.name }}.tar.gz LazyMixtapeMaker; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LazyMixtapeMaker-${{ matrix.name }}
+          path: "LazyMixtapeMaker-*"
+
+  release:
+    # Collects the three builds into a DRAFT GitHub release (nothing is public until you click Publish).
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-files
+          merge-multiple: true
+      - name: Create draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then TAG="${GITHUB_REF_NAME}";
+          elif [ -n "$INPUT_TAG" ]; then TAG="$INPUT_TAG";
+          else TAG="build-${GITHUB_RUN_NUMBER}"; fi
+          ls -la release-files
+          # Re-running replaces an existing draft for the same tag; a published release is never touched.
+          if gh release view "$TAG" --repo "$REPO" --json isDraft -q .isDraft 2>/dev/null | grep -q true; then
+            gh release delete "$TAG" --repo "$REPO" --yes
+          fi
+          gh release create "$TAG" release-files/* --repo "$REPO" --draft \
+            --target "${GITHUB_SHA}" --title "Lazy Mixtape Maker ${TAG}" \
+            --notes "Windows (.zip), macOS (.zip) and Linux (.tar.gz) builds. Unzip and run LazyMixtapeMaker. Everything runs offline."

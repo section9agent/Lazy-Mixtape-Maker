@@ -1,0 +1,11 @@
+numpy>=1.26
+scipy>=1.11
+librosa>=0.10
+soundfile>=0.13
+mutagen>=1.47
+pillow>=10
+moderngl>=5.10
+PySide6-Essentials>=6.6
+miniaudio>=1.60
+imageio-ffmpeg>=0.5
+pyloudnorm>=0.1.1
