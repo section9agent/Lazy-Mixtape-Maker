@@ -265,26 +265,77 @@ def shader_to_json(sh: "Shader") -> str:
     return json.dumps({"Shader": {"info": info, "renderpass": rps}}, indent=1)
 
 
-def fetch_from_shadertoy(url_or_id: str, api_key: str, timeout: float = 15.0):
-    """Optional online import via the Shadertoy API (needs the user's own API key).
-    Returns (name, author, code, warnings, url)."""
+def _http(req, timeout):
+    import urllib.request
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode("utf-8", "replace")
+
+
+def fetch_from_shadertoy(url_or_id: str, api_key: str = "", timeout: float = 20.0):
+    """Download a shader by its link, with or without an API key.
+
+    Without a key it asks shadertoy.com the same way the site's own page does (a form POST that returns the
+    shader's JSON, including every pass). With a key it uses the official API. Returns
+    (name, author, code, warnings, url, passes)."""
+    import urllib.parse
     import urllib.request
 
     sid = shader_id_from_url(url_or_id)
     if not sid:
         raise ValueError("That doesn't look like a Shadertoy link (https://www.shadertoy.com/view/XXXXXX).")
-    if not api_key:
-        raise ValueError("Online import needs a Shadertoy API key (shadertoy.com -> your profile -> Apps). "
-                         "Or just paste the shader's code instead - that works offline.")
-    req = urllib.request.Request(f"https://www.shadertoy.com/api/v1/shaders/{sid}?key={api_key}",
-                                 headers={"User-Agent": "LazyMixtapeMaker"})
+    view = f"https://www.shadertoy.com/view/{sid}"
+    ua = "Mozilla/5.0 (compatible; LazyMixtapeMaker)"
+    text, errors = "", []
+    if api_key:
+        try:
+            text = _http(urllib.request.Request(f"https://www.shadertoy.com/api/v1/shaders/{sid}?key={api_key}",
+                                                headers={"User-Agent": ua}), timeout)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"API: {e}")
+    if not text:
+        body = urllib.parse.urlencode({"s": json.dumps({"shaders": [sid]}), "nt": "1", "nl": "1", "np": "1"}).encode()
+        try:
+            text = _http(urllib.request.Request("https://www.shadertoy.com/shadertoy", data=body, method="POST",
+                                                headers={"User-Agent": ua, "Referer": view,
+                                                         "Origin": "https://www.shadertoy.com",
+                                                         "Content-Type": "application/x-www-form-urlencoded"}), timeout)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"website: {e}")
+    if not text:
+        raise ValueError("Couldn't download that shader (" + "; ".join(errors) + "). Check your internet connection, "
+                         "or paste the code with the Paste / Multi-pass tabs instead.")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            text = r.read().decode("utf-8", "replace")
-    except Exception as e:  # noqa: BLE001
-        raise ValueError(f"Could not reach Shadertoy ({e}). You can paste the shader code instead.") from None
-    name, author, code, warnings, passes = parse_shadertoy_json(text)
-    return name, author, code, warnings, f"https://www.shadertoy.com/view/{sid}", passes
+        name, author, code, warnings, passes = parse_shadertoy_json(text)
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+        raise ValueError(f"Shadertoy didn't send a usable shader for that link ({e}). The shader may be private "
+                         "or not shared with the API. Paste its code instead.") from None
+    return name, author, code, warnings, view, passes
+
+
+CHANNEL_KINDS = ("noise", "audio", "keyboard", "buffer:A", "buffer:B", "buffer:C", "buffer:D")
+
+
+def build_passes(common: str = "", buffers: dict | None = None, image: tuple[str, dict] | None = None):
+    """Assemble a multi-pass shader from what the user pasted for each Shadertoy tab.
+
+    buffers: {"A": (code, {channel: kind}), ...}; image: (code, {channel: kind}).
+    Returns (source, passes) as stored in a Shader."""
+    if image is None or not image[0].strip():
+        raise ValueError("The Image tab is empty - every shader needs an Image pass.")
+    passes = []
+    if common.strip():
+        passes.append({"name": "Common", "type": "common", "code": common, "inputs": {}})
+    for letter in "ABCD":
+        code, ins = (buffers or {}).get(letter, ("", {}))
+        if code.strip():
+            passes.append({"name": f"Buffer {letter}", "type": "buffer", "code": code,
+                           "inputs": {str(c): k for c, k in ins.items() if k in CHANNEL_KINDS}})
+    passes.append({"name": "Image", "type": "image", "code": image[0],
+                   "inputs": {str(c): k for c, k in image[1].items() if k in CHANNEL_KINDS}})
+    if len(passes) == 1:
+        passes = []           # just an Image pass: store it as a plain shader (keeps its inputs)
+    source = (common + "\n" if common.strip() else "") + image[0]
+    return source, passes
 
 
 # ----------------------------------------------------------------------- the library
@@ -322,7 +373,8 @@ class ShaderLibrary:
             if err:
                 raise ShaderError(err)
         for ex in self._user.values():  # same code twice -> reuse (the newest explicit name wins)
-            if ex.source.strip() == source.strip():
+            if ex.source.strip() == source.strip() and \
+                    [q.get("code") for q in ex.passes] == [q.get("code") for q in (passes or [])]:
                 nm = (name or "").strip()[:80]
                 if nm and nm != "Imported shader" and nm != ex.name:
                     ex.name = nm
@@ -355,9 +407,15 @@ class ShaderLibrary:
         sh = self.add_from_text(text, name=p.stem)
         return sh
 
-    def add_from_shadertoy(self, url_or_id: str, api_key: str) -> Shader:
+    def add_from_shadertoy(self, url_or_id: str, api_key: str = "") -> Shader:
         name, author, code, warns, url, passes = fetch_from_shadertoy(url_or_id, api_key)
         return self.add(name, code, author=author, origin="shadertoy-api", url=url, warnings=warns, passes=passes)
+
+    def add_from_passes(self, name: str, common: str = "", buffers: dict | None = None,
+                        image: tuple[str, dict] | None = None) -> Shader:
+        """A multi-pass shader from the code of each Shadertoy tab (Common, Buffer A-D, Image)."""
+        source, passes = build_passes(common, buffers, image)
+        return self.add(name or "Imported shader", source, origin="pasted", passes=passes)
 
     def rename(self, sid: str, name: str) -> None:
         sh = self._user[sid]

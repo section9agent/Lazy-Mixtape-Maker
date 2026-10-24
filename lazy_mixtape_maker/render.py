@@ -107,9 +107,11 @@ def _shape_track(x: np.ndarray, slot: Slot, sr: int) -> np.ndarray:
     return (x * lo).astype(np.float32)
 
 
-def _apply_effects(buf: np.ndarray, track, n: int, bpm: float, sr: int) -> np.ndarray:
+def _apply_effects(buf: np.ndarray, track, n: int, bpm: float, sr: int, mute_start: bool = False,
+                   mute_end: bool = False) -> np.ndarray:
     # backspin last because it silences everything after it
-    effs = sorted(track.effects, key=lambda e: (e.type == "backspin", e.offset))
+    effs = [e for e in track.effects if not (mute_start if e.anchor == "start" else mute_end)]
+    effs.sort(key=lambda e: (e.type == "backspin", e.offset))
     for e in effs:
         a = int(round(e.offset * sr)) if e.anchor == "start" else n + int(round(e.offset * sr))
         a = max(0, a)
@@ -154,7 +156,9 @@ def render_mix(plan: MixPlan, lib: dict[str, SongAnalysis], paths: dict[str, str
         x = x * np.float32(10 ** (t.gain_db / 20))
         x = _shape_track(x, slot, sr)
         buf = np.concatenate([x, np.zeros((2, tail), dtype=np.float32)], axis=1)
-        buf = _apply_effects(buf, t, n, t.bpm or plan.master_bpm, sr)
+        buf = _apply_effects(buf, t, n, t.bpm or plan.master_bpm, sr,
+                             mute_start=bool(slot.trans_in and not slot.trans_in.fx),
+                             mute_end=bool(slot.trans_out and not slot.trans_out.fx))
         end = min(total, slot.start + buf.shape[1])
         mix[:, slot.start:end] += buf[:, : end - slot.start]
     if progress:

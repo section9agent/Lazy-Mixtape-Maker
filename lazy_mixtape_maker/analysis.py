@@ -13,7 +13,7 @@ import numpy as np
 
 from . import audio_io
 
-ANALYSIS_VERSION = 3
+ANALYSIS_VERSION = 4
 ASR = 22050
 HOP = 512
 BPM_LOW, BPM_HIGH = 80.0, 160.0  # tempo is folded into this range
@@ -78,6 +78,8 @@ class SongAnalysis:
     sections: list[Section] = field(default_factory=list)
     bar_energy: list[float] = field(default_factory=list)
     bar_energy_origin: float = 0.0   # time of first entry in bar_energy
+    wave: list[int] = field(default_factory=list)   # loudness envelope for drawing, 0-100, one value per wave_step seconds
+    wave_step: float = 0.1
     version: int = ANALYSIS_VERSION
 
     # --- grid helpers (bars are 4 beats; 4/4 assumed)
@@ -453,13 +455,18 @@ def analyze_file(path, cache_dir=None, force: bool = False, progress=None) -> So
     except Exception:
         lufs = float(20 * np.log10(np.sqrt(np.mean(seg ** 2)) + 1e-9) - 0.7)
 
+    nb = int(len(y) / (ASR * 0.1))
+    wave: list[int] = []
+    if nb > 0:
+        pk = np.abs(y[: nb * int(ASR * 0.1)]).reshape(nb, -1).max(axis=1) if len(y) >= nb * int(ASR * 0.1) else np.zeros(nb)
+        wave = [int(v) for v in np.round(100 * np.sqrt(pk / (pk.max() + 1e-9)))]
     an = SongAnalysis(
         id=fid, path=str(path), title=tags["title"], artist=tags["artist"], album=tags["album"],
         duration=float(dur), bpm=float(bpm), beat_period=float(p), grid_origin=origin,
         key_tonic=int(tonic), key_mode=mode, key_name=key_name(tonic, mode), camelot=camelot(tonic, mode),
         key_confidence=conf, audio_start=audio_start, audio_end=audio_end, loudness_lufs=lufs,
         sections=sections, bar_energy=bar_energy_list,
-        bar_energy_origin=float(bar_lines[0]) if len(bar_lines) else 0.0,
+        bar_energy_origin=float(bar_lines[0]) if len(bar_lines) else 0.0, wave=wave,
     )
     _cache_save(cache_dir, an)
     tick("done", 1.0)

@@ -1,9 +1,11 @@
 """The timeline: songs laid out like two DJ decks, transitions as shaded overlaps,
 effects as small markers. Drag a song sideways to change how long it blends with
-the previous one, drag its right edge to trim it, drag an effect to retime it."""
+the previous one, drag its left or right edge to trim where it starts or ends, drag an effect to retime it."""
 from __future__ import annotations
 
 import colorsys
+
+import numpy as np
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
@@ -15,10 +17,11 @@ from ..plan import timeline as build_timeline
 from .state import AppState
 
 RULER_H = 26
-LANE_H = 70
-LANE_GAP = 26
+LANE_H = 86
+LANE_GAP = 30
 TOP_PAD = 8
-EDGE = 7  # px grab zone on a song's right edge
+EDGE = 8  # px grab zone on a song's left / right edge
+SEC_H = 15  # height of the song-section strip
 
 SECTION_COLORS = {
     "intro": "#5aa9e6", "verse": "#7fc8a9", "chorus": "#f2a541", "bridge": "#c77dff",
@@ -153,20 +156,8 @@ class TimelineWidget(QWidget):
         p.fillPath(path, QBrush(track_color(i, sel)))
         p.save()
         p.setClipPath(path)
-        # energy curve (how the song builds)
-        if an.bar_energy:
-            top = max(an.bar_energy) or 1.0
-            poly = QPainterPath()
-            poly.moveTo(rect.left(), rect.bottom() - 8)
-            for j, e in enumerate(an.bar_energy):
-                ts = an.bar_energy_origin + j * an.bar_length
-                if ts < t.src_start - an.bar_length or ts > t.src_end:
-                    continue
-                x = rect.left() + float(slot.curve.mix_time(ts)) * self.pps
-                poly.lineTo(x, rect.bottom() - 8 - (e / top) * (LANE_H - 26))
-            poly.lineTo(rect.right(), rect.bottom() - 8)
-            poly.closeSubpath()
-            p.fillPath(poly, QColor(0, 0, 0, 55))
+        # waveform (near-black, over the track colour)
+        self._paint_wave(p, an, t, slot, rect)
         # section strip (intro / verse / chorus ...)
         for sec in an.sections:
             a = max(sec.start, t.src_start)
@@ -176,48 +167,94 @@ class TimelineWidget(QWidget):
             x0 = rect.left() + float(slot.curve.mix_time(a)) * self.pps
             x1 = rect.left() + float(slot.curve.mix_time(b)) * self.pps
             col = QColor(SECTION_COLORS.get(sec.label, "#aaaaaa"))
-            p.fillRect(QRectF(x0, rect.bottom() - 7, x1 - x0, 7), col)
-            if x1 - x0 > 42:
-                p.setPen(QColor(15, 15, 20, 200))
-                p.setFont(QFont(self.font().family(), 7))
-                p.drawText(QRectF(x0 + 3, rect.bottom() - 7, x1 - x0, 7), Qt.AlignmentFlag.AlignVCenter, sec.label)
+            band = QRectF(x0, rect.bottom() - SEC_H, x1 - x0, SEC_H)
+            p.fillRect(band, col)
+            p.setPen(QPen(QColor(10, 10, 14, 200), 1))
+            p.drawLine(QPointF(x0, band.top()), QPointF(x0, band.bottom()))
+            if x1 - x0 > 30:
+                p.setPen(QColor(10, 10, 14))
+                f = QFont(self.font().family(), 8)
+                f.setBold(True)
+                p.setFont(f)
+                p.drawText(band.adjusted(4, 0, -2, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                           p.fontMetrics().elidedText(sec.label, Qt.TextElideMode.ElideRight, int(band.width() - 6)))
         p.restore()
         p.setPen(QPen(QColor("#ffffff") if sel else QColor(0, 0, 0, 90), 2 if sel else 1))
         p.drawPath(path)
-        # labels
-        p.setPen(QColor("#0e0f13"))
+        # labels (white with a dark shadow so they read over the waveform)
         f = QFont(self.font().family(), 9)
         f.setBold(True)
         p.setFont(f)
         label = f"{i + 1}. {an.title}"
-        p.drawText(rect.adjusted(8, 5, -8, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-                   p.fontMetrics().elidedText(label, Qt.TextElideMode.ElideRight, int(rect.width() - 16)))
+        lab = p.fontMetrics().elidedText(label, Qt.TextElideMode.ElideRight, int(rect.width() - 16))
+        for dx, col in ((1, QColor(0, 0, 0, 200)), (0, QColor("#ffffff"))):
+            p.setPen(col)
+            p.drawText(rect.adjusted(8 + dx, 5 + dx, -8, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, lab)
         p.setFont(QFont(self.font().family(), 8))
         sub = f"{an.artist + '  ·  ' if an.artist else ''}{an.camelot}  ·  {(t.bpm or self.state.plan.master_bpm):.0f} BPM"
         if t.pitch:
             sub += f"  ·  {t.pitch:+d} st"
         if i == st.sel or rect.width() > 150:
-            p.drawText(rect.adjusted(8, 22, -8, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-                       p.fontMetrics().elidedText(sub, Qt.TextElideMode.ElideRight, int(rect.width() - 16)))
+            subt = p.fontMetrics().elidedText(sub, Qt.TextElideMode.ElideRight, int(rect.width() - 16))
+            for dx, col in ((1, QColor(0, 0, 0, 200)), (0, QColor(235, 238, 245))):
+                p.setPen(col)
+                p.drawText(rect.adjusted(8 + dx, 22 + dx, -8, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, subt)
         if t.song_id not in st.paths:
-            p.setPen(QColor("#b00020"))
+            p.setPen(QColor("#ff8a8a"))
             p.drawText(rect.adjusted(8, 38, -8, 0), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "file not found")
         # effects
         for e in t.effects:
             fr = self._fx_rect(i, e, slot, rect)
             col = QColor(FX_COLORS.get(e.type, "#cccccc"))
             fx_sel = e.id == st.sel_fx
-            p.setBrush(col if fx_sel else QColor(col.red(), col.green(), col.blue(), 210))
+            tr_fx = slot.trans_in if e.anchor == "start" else slot.trans_out
+            muted = bool(tr_fx and not tr_fx.fx)
+            p.setBrush(QColor(90, 94, 104, 120) if muted else (col if fx_sel else QColor(col.red(), col.green(), col.blue(), 210)))
             p.setPen(QPen(QColor("#ffffff"), 2) if fx_sel else QPen(QColor(0, 0, 0, 120), 1))
             p.drawRoundedRect(fr, 3, 3)
             if fr.width() > 30:
-                p.setPen(QColor("#101015"))
+                p.setPen(QColor("#9aa0a6") if muted else QColor("#101015"))
                 p.setFont(QFont(self.font().family(), 7))
-                p.drawText(fr, Qt.AlignmentFlag.AlignCenter, e.type)
+                p.drawText(fr, Qt.AlignmentFlag.AlignCenter, e.type + (" (off)" if muted and fr.width() > 70 else ""))
+
+    def _paint_wave(self, p: QPainter, an, t, slot, rect: QRectF):
+        clip = p.clipBoundingRect()
+        x0 = max(rect.left(), clip.left() - 2)
+        x1 = min(rect.right(), clip.right() + 2)
+        if x1 <= x0:
+            return
+        top, bot = rect.top() + 3, rect.bottom() - SEC_H - 2
+        mid, half = (top + bot) / 2, (bot - top) / 2
+        xs = np.arange(int(x0), int(x1) + 1, dtype=np.float64)
+        u0 = (xs - rect.left()) / self.pps
+        wave = an.wave
+        step = an.wave_step or 0.1
+        if wave:
+            w = np.asarray(wave, dtype=np.float64) / 100.0
+            amp = np.zeros(len(xs))
+            for k in range(3):                  # a few samples per pixel so peaks survive zooming out
+                src = slot.curve.src_time(u0 + k / (3.0 * self.pps))
+                idx = np.clip((src / step).astype(int), 0, len(w) - 1)
+                amp = np.maximum(amp, w[idx])
+        elif an.bar_energy:
+            be = np.asarray(an.bar_energy, dtype=np.float64)
+            src = slot.curve.src_time(u0)
+            idx = np.clip(((src - an.bar_energy_origin) / an.bar_length).astype(int), 0, len(be) - 1)
+            amp = 0.15 + 0.6 * be[idx]
+        else:
+            return
+        poly = QPainterPath()
+        poly.moveTo(xs[0], mid)
+        for x, a in zip(xs, amp):
+            poly.lineTo(x, mid - a * half)
+        for x, a in zip(xs[::-1], amp[::-1]):
+            poly.lineTo(x, mid + a * half)
+        poly.closeSubpath()
+        p.fillPath(poly, QColor(8, 8, 12, 235))
 
     # --------------------------------------------------------------- interaction
     def _hit(self, pos):
-        """-> ('fx', i, effect) | ('edge', i) | ('track', i) | None"""
+        """-> ('fx', i, effect) | ('edge', i) right edge | ('edge_l', i) left edge | ('track', i) | None"""
         slots, rects = self._rects()
         plan = self.state.plan
         for i in reversed(range(len(rects))):
@@ -227,14 +264,18 @@ class TimelineWidget(QWidget):
         for i in reversed(range(len(rects))):
             r = rects[i]
             if r.contains(pos):
-                return ("edge", i) if pos.x() > r.right() - EDGE else ("track", i)
+                if pos.x() > r.right() - EDGE:
+                    return ("edge", i)
+                if pos.x() < r.left() + EDGE:
+                    return ("edge_l", i)
+                return ("track", i)
         return None
 
     def mouseMoveEvent(self, ev):
         pos = ev.position()
         if self._drag is None:
             hit = self._hit(pos)
-            if hit and hit[0] == "edge":
+            if hit and hit[0] in ("edge", "edge_l"):
                 self.setCursor(Qt.CursorShape.SizeHorCursor)
             elif hit and hit[0] in ("track", "fx"):
                 self.setCursor(Qt.CursorShape.OpenHandCursor)
@@ -265,6 +306,31 @@ class TimelineWidget(QWidget):
                 an = st.lib[t.song_id]
                 new_end = min(an.duration, d["end0"] + db * beat * (t.rate_out or t.rate))
                 st.edit(lambda p, lib: planmod.set_track_bounds(p, lib, d["i"], src_end=new_end))
+            elif d["kind"] == "edge_l":
+                i = d["i"]
+                t = plan.tracks[i]
+                an = st.lib[t.song_id]
+                if i > 0:
+                    beat = 60.0 / planmod.tr_tempo(plan, plan.transition_after(i - 1))
+                    rate = t.rate_in or t.rate
+                else:
+                    beat, rate = 60.0 / (t.bpm or plan.master_bpm), t.rate
+                step = beat * rate
+                want = d["start0"] + round(dsec / beat) * step
+                new_start = min(max(0.0, want), t.src_end - 2.0)
+                db = round((new_start - d["start0"]) / step)          # beats the edge really moved
+                new_start = d["start0"] + db * step
+                beats = max(0, d["beats0"] - db) if i > 0 else 0
+
+                def fn(p, lib):
+                    if i > 0:
+                        tr = p.transition_after(i - 1)
+                        new_type = tr.type
+                        if beats > 0 and tr.type in ("cut", "cut_fx"):
+                            new_type = "crossfade" if beats < 16 else "eq_swap"
+                        planmod.set_transition(p, lib, i - 1, new_type, beats)
+                    planmod.set_track_bounds(p, lib, i, src_start=new_start)
+                st.edit(fn)
             elif d["kind"] == "fx":
                 beat = 60.0 / (plan.tracks[d["i"]].bpm or plan.master_bpm)
                 q = beat / 4
@@ -297,11 +363,11 @@ class TimelineWidget(QWidget):
             st.select(i, hit[2].id)
         else:
             tr = plan.transition_after(i - 1) if i > 0 else None
-            d.update(beats0=tr.overlap_beats if tr else 0, end0=t.src_end)
+            d.update(beats0=tr.overlap_beats if tr else 0, end0=t.src_end, start0=t.src_start)
             st.select(i)
         st.begin_gesture()
         self._drag = d
-        self.setCursor(Qt.CursorShape.SizeHorCursor if hit[0] == "edge" else Qt.CursorShape.ClosedHandCursor)
+        self.setCursor(Qt.CursorShape.SizeHorCursor if hit[0] in ("edge", "edge_l") else Qt.CursorShape.ClosedHandCursor)
 
     def mouseReleaseEvent(self, ev):
         if self._drag is not None:

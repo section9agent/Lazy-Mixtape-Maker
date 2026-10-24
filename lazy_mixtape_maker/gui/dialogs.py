@@ -84,47 +84,96 @@ class GenerateDialog(QDialog):
         return s
 
 
+CHANNEL_LABELS = [("noise", "Nothing / noise texture"), ("audio", "Music (audio)"), ("keyboard", "Keyboard"),
+                  ("buffer:A", "Buffer A"), ("buffer:B", "Buffer B"), ("buffer:C", "Buffer C"), ("buffer:D", "Buffer D")]
+
+
+class _PassEditor(QWidget):
+    """Code box for one Shadertoy tab, plus what feeds its iChannel0-3 inputs."""
+
+    def __init__(self, title: str, has_inputs: bool, placeholder: str = ""):
+        super().__init__()
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 4, 4, 4)
+        self.code = QPlainTextEdit()
+        self.code.setPlaceholderText(placeholder or f"Paste the {title} code here (leave empty if the shader has no {title} tab)")
+        self.code.setStyleSheet("font-family: monospace")
+        lay.addWidget(self.code, 1)
+        self.combos: list[QComboBox] = []
+        if has_inputs:
+            row = QHBoxLayout()
+            for ch in range(4):
+                col = QVBoxLayout()
+                col.addWidget(QLabel(f"iChannel{ch}"))
+                c = QComboBox()
+                for k, v in CHANNEL_LABELS:
+                    c.addItem(v, k)
+                self.combos.append(c)
+                col.addWidget(c)
+                row.addLayout(col)
+            lay.addLayout(row)
+
+    def text(self) -> str:
+        return self.code.toPlainText()
+
+    def inputs(self) -> dict:
+        return {ch: c.currentData() for ch, c in enumerate(self.combos) if c.currentData() != "noise"}
+
+
 class AddVisualDialog(QDialog):
-    """Add a Shadertoy shader: paste the code, load a file, or (online, optional) use its link."""
+    """Add a Shadertoy shader: paste its code (or Shadertoy JSON), fill in each tab of a multi-pass
+    shader (Common, Buffer A-D, Image), or download it from its link (no API key needed)."""
 
     def __init__(self, shaders: ShaderLibrary, parent=None):
         super().__init__(parent)
         self.shaders = shaders
         self.added = None
         self.setWindowTitle("Add a visual from Shadertoy")
-        self.resize(640, 520)
+        self.resize(760, 640)
         lay = QVBoxLayout(self)
         info = QLabel(
-            "Find a shader on <b>shadertoy.com</b>, then copy its code from the editor (or use <i>Download</i> → JSON) "
-            "and paste it here. It's saved on this computer, so it works offline from then on. Multi-pass shaders "
-            "(Buffer A–D) work; inputs that need the internet, a webcam or video are replaced by noise.")
+            "Find a shader on <b>shadertoy.com</b>. Simple shaders: paste the code. Shaders with <i>Buffer</i> tabs: use "
+            "<b>Multi-pass</b> and paste each tab. Or paste its <b>link</b> and it's downloaded for you. "
+            "Visuals are saved on this computer, so they work offline from then on. Inputs that need the internet, a "
+            "webcam or video are replaced by noise.")
         info.setWordWrap(True); info.setTextFormat(Qt.TextFormat.RichText)
         lay.addWidget(info)
         self.name = QLineEdit(); self.name.setPlaceholderText("Name (optional)")
         lay.addWidget(self.name)
         self.tabs = QTabWidget()
         lay.addWidget(self.tabs, 1)
+        # 1. paste
         self.paste = QPlainTextEdit(); self.paste.setPlaceholderText("Paste the shader code (or Shadertoy JSON) here…")
         self.paste.setStyleSheet("font-family: monospace")
         self.tabs.addTab(self.paste, "Paste code")
-        f = QWidget(); fl = QVBoxLayout(f)
-        row = QHBoxLayout()
-        self.file_label = QLabel("No file chosen")
-        pick = QPushButton("Choose a file…")
-        row.addWidget(pick); row.addWidget(self.file_label, 1)
-        fl.addLayout(row); fl.addWidget(QLabel("A .glsl / .txt file with the code, or a Shadertoy .json export.")); fl.addStretch(1)
-        self.tabs.addTab(f, "From a file")
-        self.file_path = ""
+        # 2. multi-pass
+        self.passes = QTabWidget()
+        self.p_common = _PassEditor("Common", False)
+        self.p_buf = {L: _PassEditor(f"Buffer {L}", True) for L in "ABCD"}
+        self.p_image = _PassEditor("Image", True, "Paste the Image tab code here (required)")
+        self.passes.addTab(self.p_common, "Common")
+        for L in "ABCD":
+            self.passes.addTab(self.p_buf[L], f"Buffer {L}")
+        self.passes.addTab(self.p_image, "Image")
+        self.passes.setCurrentWidget(self.p_image)
+        mp = QWidget(); ml = QVBoxLayout(mp)
+        hint = QLabel("Fill in only the tabs the shader has, then set which input each <i>iChannel</i> uses "
+                      "(in Shadertoy it's shown under each tab). A buffer that reads its own name is a feedback loop.")
+        hint.setWordWrap(True); hint.setTextFormat(Qt.TextFormat.RichText); hint.setStyleSheet("color:#8b93a1")
+        ml.addWidget(hint); ml.addWidget(self.passes, 1)
+        self.tabs.addTab(mp, "Multi-pass")
+        # 3. link
         o = QWidget(); ol = QFormLayout(o)
         self.url = QLineEdit(); self.url.setPlaceholderText("https://www.shadertoy.com/view/XXXXXX")
-        self.key = QLineEdit(); self.key.setPlaceholderText("Your Shadertoy API key")
+        self.key = QLineEdit(); self.key.setPlaceholderText("Optional: your Shadertoy API key")
         self.key.setText(str(QSettings().value("shadertoy_key", "")))
-        ol.addRow("Link", self.url); ol.addRow("API key", self.key)
-        hint = QLabel("Optional, needs internet. Get a free key on shadertoy.com (profile → Apps). "
-                      "Everything else in the app works offline.")
-        hint.setWordWrap(True); hint.setStyleSheet("color:#8b93a1")
-        ol.addRow(hint)
-        self.tabs.addTab(o, "From a link (online)")
+        ol.addRow("Link", self.url); ol.addRow("API key (optional)", self.key)
+        h2 = QLabel("Needs internet just for the download. No account or key is needed; a key is only a fallback. "
+                    "Multi-pass shaders come down complete. If a shader's author turned off outside access, use "
+                    "the Paste or Multi-pass tab.")
+        h2.setWordWrap(True); h2.setStyleSheet("color:#8b93a1")
+        ol.addRow(h2)
+        self.tabs.addTab(o, "From a link")
         self.msg = QLabel(); self.msg.setWordWrap(True); self.msg.setStyleSheet("color:#ff6b6b")
         lay.addWidget(self.msg)
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
@@ -132,14 +181,6 @@ class AddVisualDialog(QDialog):
         bb.rejected.connect(self.reject)
         self.go.clicked.connect(self._add)
         lay.addWidget(bb)
-        pick.clicked.connect(self._pick)
-
-    def _pick(self):
-        p, _ = QFileDialog.getOpenFileName(self, "Choose a shader", str(QSettings().value("last_dir", "")),
-                                           "Shaders (*.glsl *.frag *.txt *.json);;All files (*)")
-        if p:
-            self.file_path = p
-            self.file_label.setText(p)
 
     def _add(self):
         self.msg.setText("")
@@ -150,11 +191,10 @@ class AddVisualDialog(QDialog):
             if tab == 0:
                 sh = self.shaders.add_from_text(self.paste.toPlainText(), name)
             elif tab == 1:
-                if not self.file_path:
-                    raise ValueError("Choose a file first.")
-                sh = self.shaders.add_from_file(self.file_path)
-                if name:
-                    self.shaders.rename(sh.id, name)
+                sh = self.shaders.add_from_passes(
+                    name, self.p_common.text(),
+                    {L: (e.text(), e.inputs()) for L, e in self.p_buf.items()},
+                    (self.p_image.text(), self.p_image.inputs()))
             else:
                 QSettings().setValue("shadertoy_key", self.key.text().strip())
                 sh = self.shaders.add_from_shadertoy(self.url.text(), self.key.text().strip())

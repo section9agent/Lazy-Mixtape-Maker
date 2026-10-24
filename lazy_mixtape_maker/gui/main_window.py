@@ -107,7 +107,9 @@ class MainWindow(TaskMixin, QMainWindow):
         row = QHBoxLayout()
         self.b_up, self.b_down, self.b_remove = QPushButton("↑"), QPushButton("↓"), QPushButton("Remove")
         self.b_up.setToolTip("Move up"); self.b_down.setToolTip("Move down")
-        self.b_up.setFixedWidth(40); self.b_down.setFixedWidth(40)
+        self.b_up.setFixedSize(52, 38); self.b_down.setFixedSize(52, 38)
+        for b in (self.b_up, self.b_down):
+            b.setStyleSheet("font-size: 20px; padding: 0")
         row.addWidget(self.b_up); row.addWidget(self.b_down); row.addStretch(1); row.addWidget(self.b_remove)
         ll.addLayout(row)
         hint = QLabel("Drag songs to reorder. Drop music files here to add them.")
@@ -135,7 +137,7 @@ class MainWindow(TaskMixin, QMainWindow):
         for txt, tip, fn in (("−", "Zoom out", lambda: self.timeline.set_zoom(self.timeline.pps / 1.3)),
                              ("+", "Zoom in", lambda: self.timeline.set_zoom(self.timeline.pps * 1.3)),
                              ("Fit", "Fit the whole mix", lambda: self.timeline.fit_to(self.scroll.viewport().width()))):
-            b = QPushButton(txt); b.setToolTip(tip); b.setFixedWidth(44); b.clicked.connect(fn); bar.addWidget(b)
+            b = QPushButton(txt); b.setToolTip(tip); b.setFixedSize(56, 34); b.setStyleSheet("font-size: 18px; padding: 0"); b.clicked.connect(fn); bar.addWidget(b)
         tv.addLayout(bar)
         tv.addWidget(self.scroll, 1)
         self.cue = CuePanel(s)
@@ -166,8 +168,10 @@ class MainWindow(TaskMixin, QMainWindow):
         self.library.use_clicked.connect(self._use_for_all)
 
     def _build_actions(self):
-        def act(text, slot, shortcut=None, tip=None):
+        def act(text, slot, shortcut=None, tip=None, glyph=None):
             a = QAction(text, self)
+            if glyph:
+                a.setIcon(theme.glyph_icon(glyph))
             a.triggered.connect(slot)
             if shortcut:
                 a.setShortcut(QKeySequence(shortcut))
@@ -179,21 +183,20 @@ class MainWindow(TaskMixin, QMainWindow):
         self.a_open = act("Open session…", self.open_session, "Ctrl+O")
         self.a_save = act("Save session", self.save_session, "Ctrl+S")
         self.a_save_as = act("Save session as…", lambda: self.save_session(True), "Ctrl+Shift+S")
-        self.a_add = act("Add songs…", self.add_songs_dialog, "Ctrl+I", "Add songs to the mix")
-        self.a_add_folder = act("Add folder…", self.add_folder_dialog, "Ctrl+Shift+I")
+        self.a_add = act("Add songs", self.add_songs_dialog, "Ctrl+I", "Add songs to the mix", "＋")
+        self.a_add_folder = act("Add folder", self.add_folder_dialog, "Ctrl+Shift+I", "Add every song in a folder", "▤")
         self.a_locate = act("Find missing songs…", self.locate_songs)
-        self.a_gen = act("Generate mix…", self.generate, "Ctrl+G", "Let the AI build (or rebuild) the mix")
+        self.a_gen = act("Generate mix", self.generate, "Ctrl+G", "Let the AI build (or rebuild) the mix", "✦")
         self.a_refresh = act("Refresh AI suggestions", self.refresh_ai, None, "Re-pick everything you haven't changed by hand")
-        self.a_play = act("▶ Play / pause", self.toggle_play, "Space")
-        self.a_stop = act("■ Stop", self.stop)
-        self.a_trans = act("Preview this transition", self.play_transition, "Ctrl+T")
-        self.a_audio = act("Export audio…", self.export_audio, "Ctrl+E")
-        self.a_video = act("Export video…", self.export_video, "Ctrl+Shift+E")
+        self.a_play = act("Play", self.toggle_play, "Space", None, "▶")
+        self.a_stop = act("Stop", self.stop, None, None, "■")
+        self.a_audio = act("Export audio", self.export_audio, "Ctrl+E", "Save the mix as WAV, MP3 or FLAC", "♪")
+        self.a_video = act("Export video", self.export_video, "Ctrl+Shift+E", "Save the mix as an MP4 video", "▣")
         self.a_cue = act("Save cue sheet…", self.export_cue)
         self.a_undo = act("Undo", self.state.undo, "Ctrl+Z")
         self.a_redo = act("Redo", self.state.redo, "Ctrl+Shift+Z")
         self.a_del = act("Remove selected song", self.remove_selected, "Delete")
-        self.a_studio = act("Visualization Studio…", self.open_studio, "Ctrl+Shift+V", "Make a video for a mixtape you already have")
+        self.a_studio = act("Visualization Studio", self.open_studio, "Ctrl+Shift+V", "Make a video for a mixtape you already have", "◉")
         self.a_overlay = act("Show cover art, artist and title on videos", self.toggle_overlay)
         self.a_overlay.setCheckable(True)
         self.a_overlay.setChecked(prefs.overlay_enabled())
@@ -209,7 +212,7 @@ class MainWindow(TaskMixin, QMainWindow):
         for a in (self.a_undo, self.a_redo, None, self.a_del):
             e.addAction(a) if a else e.addSeparator()
         mx = m.addMenu("&Mix")
-        for a in (self.a_gen, self.a_refresh, None, self.a_play, self.a_stop, self.a_trans):
+        for a in (self.a_gen, self.a_refresh, None, self.a_play, self.a_stop):
             mx.addAction(a) if a else mx.addSeparator()
         tm = m.addMenu("&Tools")
         tm.addAction(self.a_studio)
@@ -218,9 +221,10 @@ class MainWindow(TaskMixin, QMainWindow):
         m.addMenu("&Help").addAction(self.a_about)
         tb = QToolBar("Main")
         tb.setMovable(False)
-        tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        tb.setIconSize(QSize(34, 34))
         self.addToolBar(tb)
-        for a in (self.a_add, self.a_add_folder, None, self.a_gen, None, self.a_play, self.a_stop, self.a_trans, None,
+        for a in (self.a_add, self.a_add_folder, None, self.a_gen, None, self.a_play, self.a_stop, None,
                   self.a_audio, self.a_video, None, self.a_studio):
             tb.addAction(a) if a else tb.addSeparator()
 
@@ -309,14 +313,6 @@ class MainWindow(TaskMixin, QMainWindow):
             self._player.seek(0.0)
         self.timeline.set_playhead(0.0)
         self.time_label.setText("0:00")
-
-    def play_transition(self):
-        i = self.state.sel
-        if i < 0 or i >= len(self.state.plan.tracks) - 1:
-            self.statusBar().showMessage("Select a song that has another one after it, then preview its transition.", 5000)
-            return
-        self._player.pause()
-        self._render_preview(transition_preview_plan(self.state.plan, i), False)
 
     # ------------------------------------------------------------------ tasks
     def run_task(self, title, fn, on_done):
@@ -615,7 +611,6 @@ class MainWindow(TaskMixin, QMainWindow):
         for a in (self.a_gen, self.a_play, self.a_audio, self.a_video, self.a_cue, self.a_save_as, self.a_refresh):
             a.setEnabled(has)
         self.a_stop.setEnabled(has)
-        self.a_trans.setEnabled(0 <= st.sel < len(st.plan.tracks) - 1)
         self.a_undo.setEnabled(st.can_undo())
         self.a_redo.setEnabled(st.can_redo())
         self.a_del.setEnabled(st.sel >= 0)
@@ -623,7 +618,9 @@ class MainWindow(TaskMixin, QMainWindow):
         self.b_up.setEnabled(st.sel > 0)
         self.b_down.setEnabled(0 <= st.sel < len(st.plan.tracks) - 1)
         self.a_locate.setEnabled(has)
-        self.a_play.setText("❚❚ Pause" if self._playing() and self._preview_is_full else "▶ Play")
+        pl = self._playing() and self._preview_is_full
+        self.a_play.setText("Pause" if pl else "Play")
+        self.a_play.setIcon(theme.glyph_icon("❚❚" if pl else "▶"))
 
     def _update_title(self):
         self.setWindowTitle(f"{self.state.title()} — {APP}")

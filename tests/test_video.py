@@ -175,3 +175,28 @@ def test_shader_export_roundtrip(lib):
     assert [p["inputs"] for p in again.passes] == [p["inputs"] for p in sh.passes]
     single = lib.add_from_text(GOOD, "Plain")
     assert lib.add_from_text(shader_to_json(single), "Plain2").source.strip() == GOOD.strip()
+
+
+def test_multipass_from_tabs_and_keyless_link_parsing(lib):
+    from lazy_mixtape_maker.visuals import build_passes, fetch_from_shadertoy
+    sh = lib.add_from_passes("Tabs", "", {"A": (BUF_A, {0: "buffer:A"})}, (IMG, {0: "buffer:A"}))
+    assert [p["name"] for p in sh.passes] == ["Buffer A", "Image"]
+    assert sh.passes[0]["inputs"] == {"0": "buffer:A"}
+    with pytest.raises(ValueError):
+        build_passes("", {}, ("", {}))
+    from lazy_mixtape_maker.gui.dialogs import AddVisualDialog  # noqa: F401  (imports cleanly, no file tab)
+    # the keyless download falls back to the website's own endpoint; offline it fails with a helpful message
+    import urllib.request
+    seen = []
+
+    def fake(req, timeout=0):
+        seen.append(req)
+        raise OSError("offline")
+    orig = urllib.request.urlopen
+    urllib.request.urlopen = fake
+    try:
+        with pytest.raises(ValueError, match="paste the code"):
+            fetch_from_shadertoy("https://www.shadertoy.com/view/XsXXDn")
+    finally:
+        urllib.request.urlopen = orig
+    assert seen and seen[0].full_url == "https://www.shadertoy.com/shadertoy" and seen[0].get_header("Referer").endswith("XsXXDn")

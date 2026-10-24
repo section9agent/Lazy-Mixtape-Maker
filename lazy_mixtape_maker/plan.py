@@ -63,6 +63,7 @@ class Transition:
     auto: bool = True
     tempo: float = 0.0           # BPM both songs play at during the blend (0 = the mix tempo)
     matched: bool = True         # False: the two tempos were too far apart to beat-match
+    fx: bool = True              # False: no effects at this transition (the AI adds none, yours are muted)
 
 
 @dataclass
@@ -429,11 +430,11 @@ def recompute(plan: MixPlan, lib: dict[str, SongAnalysis], regen_effects: bool =
         meet = math.sqrt(a.bpm * b.bpm) if (a.rate_out or b.rate_in) and not (s.master_bpm or s.tempo_mode == "locked") else 0.0
         if tr is None or tr.auto:
             ttype, beats = _auto_transition(a, b, pair_ok[i], plan, lib, rng)
-            tr = Transition(a.uid, b.uid, ttype, beats, True)
+            tr = Transition(a.uid, b.uid, ttype, beats, True, fx=old[(a.uid, b.uid)].fx if (a.uid, b.uid) in old else True)
         tr.matched = bool(pair_ok[i])
         tr.tempo = float(meet)
         new.append(tr)
-        if regen_effects and tr.auto:
+        if regen_effects and tr.auto and tr.fx:
             _auto_effects(a, b, tr, plan, rng)
     plan.transitions = new
     return plan
@@ -578,3 +579,13 @@ def remove_effect(plan, which, effect_id):
     t.effects = [e for e in t.effects if e.id != effect_id]
     if len(t.effects) == before:
         raise KeyError(effect_id)
+
+
+def set_transition_fx(plan, lib, after_index, enabled: bool):
+    """Switch every effect at one transition on or off (the outgoing song's end effects and the
+    incoming song's start effects)."""
+    tr = plan.transition_after(_find(plan, after_index))
+    if tr is None:
+        raise IndexError("There is no transition after the last track")
+    tr.fx = bool(enabled)
+    return recompute(plan, lib)

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComb
 from .. import audio_io, prefs, studio as st
 from ..video import MODE_LABELS, MODES, FrameComposer
 from ..visuals import ShaderLibrary, make_context
+from . import theme
 from .panels import ThumbCache, fmt_time
 from .player import AudioPlayer
 from .shader_manager import ShaderManager
@@ -346,7 +347,7 @@ class StudioWindow(TaskMixin, QMainWindow):
         for txt, tip, fn in (("−", "Zoom out", lambda: self.timeline.set_zoom(self.timeline.pps / 1.3)),
                              ("+", "Zoom in", lambda: self.timeline.set_zoom(self.timeline.pps * 1.3)),
                              ("Fit", "Fit the whole file", lambda: self.timeline.fit_to(self.scroll.viewport().width()))):
-            b = QPushButton(txt); b.setToolTip(tip); b.setFixedWidth(44); b.clicked.connect(fn); bar.addWidget(b)
+            b = QPushButton(txt); b.setToolTip(tip); b.setFixedSize(56, 34); b.setStyleSheet("font-size: 18px; padding: 0"); b.clicked.connect(fn); bar.addWidget(b)
         tv.addLayout(bar)
         tv.addWidget(self.scroll)
         tv.addStretch(1)
@@ -392,25 +393,27 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.library.use_clicked.connect(lambda sid: self._video(single_shader=sid, mode="single"))
 
     def _build_actions(self):
-        def act(text, slot, shortcut=None):
+        def act(text, slot, shortcut=None, glyph=None):
             a = QAction(text, self)
+            if glyph:
+                a.setIcon(theme.glyph_icon(glyph))
             a.triggered.connect(slot)
             if shortcut:
                 a.setShortcut(QKeySequence(shortcut))
             return a
 
-        self.a_open = act("Open audio…", self.open_audio_dialog, "Ctrl+O")
+        self.a_open = act("Open audio", self.open_audio_dialog, "Ctrl+O", "⏏")
         self.a_open_proj = act("Open project…", self.open_project_dialog, "Ctrl+Shift+O")
         self.a_save = act("Save project", lambda: self.save_project(), "Ctrl+S")
         self.a_save_as = act("Save project as…", lambda: self.save_project(True), "Ctrl+Shift+S")
-        self.a_cue = act("Import cue sheet…", self.import_cue, "Ctrl+I")
+        self.a_cue = act("Import cue sheet", self.import_cue, "Ctrl+I", "☰")
         self.a_cue_out = act("Save cue sheet…", self.export_cue)
-        self.a_export = act("Export video…", self.export_video, "Ctrl+E")
+        self.a_export = act("Export video", self.export_video, "Ctrl+E", "▣")
         self.a_undo = act("Undo", lambda: self._history(False), "Ctrl+Z")
         self.a_redo = act("Redo", lambda: self._history(True), "Ctrl+Shift+Z")
-        self.a_mark = act("Add marker at playhead", lambda: self.add_marker(self.timeline.playhead), "M")
+        self.a_mark = act("Add marker", lambda: self.add_marker(self.timeline.playhead), "M", "⚑")
         self.a_del = act("Remove selected marker", lambda: self.remove_marker(self.sel), "Delete")
-        self.a_play = act("Play / pause", self.toggle_play, "Space")
+        self.a_play = act("Play / pause", self.toggle_play, "Space", "▶")
         self.a_close = act("Close studio", self.close, "Ctrl+W")
         m = self.menuBar()
         fm = m.addMenu("&File")
@@ -422,7 +425,8 @@ class StudioWindow(TaskMixin, QMainWindow):
             em.addAction(a) if a else em.addSeparator()
         tb = QToolBar("Studio")
         tb.setMovable(False)
-        tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        tb.setIconSize(QSize(34, 34))
         self.addToolBar(tb)
         for a in (self.a_open, self.a_cue, None, self.a_play, self.a_mark, None, self.a_export):
             tb.addAction(a) if a else tb.addSeparator()

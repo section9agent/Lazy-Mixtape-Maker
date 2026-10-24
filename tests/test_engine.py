@@ -240,3 +240,39 @@ def test_ai_can_choose_the_new_effects():
         _auto_effects(a, b, tr, plan, rng)
         seen |= {e.type for e in a.effects + b.effects}
     assert {"cut", "stutter"} <= seen
+
+
+def test_effects_can_be_switched_off_per_transition(tmp_path):
+    from lazy_mixtape_maker.engine import new_session
+    from lazy_mixtape_maker.plan import MixSettings, Effect
+    from lazy_mixtape_maker.render import _apply_effects
+    d = tmp_path / "s"
+    d.mkdir()
+    for n, bpm, root in (("a", 120, 9), ("b", 122, 0), ("c", 121, 4)):
+        synth.make_song(d / f"B - {n}.wav", bpm, root, True, structure=[("verse", 8), ("chorus", 8)], tags={"title": n, "artist": "B"})
+    s, _ = new_session(audio_io.list_audio_files([d]), MixSettings(seed=3, overlap_bars=4), name="x")
+    p = s.plan
+    before = {t.uid: len(t.effects) for t in p.tracks}
+    assert sum(before.values()) > 0
+    planmod.set_transition_fx(p, s.library, 0, False)
+    assert p.transitions[0].fx is False
+    a, b = p.tracks[0], p.tracks[1]
+    assert not [e for e in a.effects if e.anchor == "end"] and not [e for e in b.effects if e.anchor == "start"]
+    assert p.transitions[1].fx is True
+    # a mix-wide refresh keeps the switch
+    planmod.recompute(p, s.library)
+    assert p.transitions[0].fx is False
+    # a hand-made effect at that transition is muted, not deleted
+    e = planmod.add_effect(p, 0, "echo", "end", None, 2.0)
+    assert e in p.tracks[0].effects
+    sr = 44100
+    buf = np.zeros((2, sr * 6), np.float32)
+    buf[:, : sr * 2] = 0.5
+    class T:  # noqa: D401
+        effects = [Effect("backspin", "end", -1.0, 1.0, {}, False)]
+    on = _apply_effects(buf.copy(), T, sr * 2, 120.0, sr)
+    off = _apply_effects(buf.copy(), T, sr * 2, 120.0, sr, mute_end=True)
+    assert np.array_equal(off, buf) and not np.array_equal(on, buf)
+    # the setting survives a session round trip
+    from lazy_mixtape_maker.plan import MixPlan
+    assert MixPlan.from_dict(p.to_dict()).transitions[0].fx is False

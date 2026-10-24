@@ -33,10 +33,10 @@ Actions tab, or push a `v*` tag).
    * The AI picks the order, how long each blend is (it uses each song's whole outro and the next song's whole intro, up to *Longest blend*, default 32 bars), bass-swap or crossfade, small key shifts (up to 2 semitones) and effects. Each of these can be switched off.
 3. **Edit** anything:
    * *Order*: drag songs in the list, or ↑ ↓. *Remove* deletes a song and the neighbours are re-blended.
-   * *Timing*: drag a song left/right on the timeline to change how much it overlaps the previous one; drag its right edge to end it earlier; or use the **Song** and **Transition** tabs (start/end points, blend length and style).
+   * *Timing*: drag a song left/right on the timeline to change how much it overlaps the previous one; drag its left edge to start it later (or earlier) and its right edge to end it earlier; or use the **Song** and **Transition** tabs (start/end points, blend length and style). Untick **Effects at this transition** to mute every effect around one blend.
    * *Effects*: **Effects** tab (echo, delay, reverb, filter sweep, flanger, backspin, **cut**: the crossfader chopping the sound or EQ-killing bass/highs in time, and **stutter**: a rolling beat repeat). Add at the start or end of a song, then drag the coloured block to retime it or edit its length and settings. The AI uses the same effects, and its choices are editable too.
    * *Visuals*: **Visual** tab picks a visual per song.
-   * *Preview this transition* (Ctrl+T) plays just the blend. Undo/redo with Ctrl+Z / Ctrl+Shift+Z.
+   * Undo/redo with Ctrl+Z / Ctrl+Shift+Z.
 4. **Save session** (Ctrl+S) writes a `.lmm` file. Reopen it any time. To share: give a friend the `.lmm` file and your songs; they open it, point at their folder if asked (songs are found by content, so renamed or moved files are fine), and get the same mix to play or adjust. Imported Shadertoy visuals travel inside the session.
 5. **Export audio**: WAV (24-bit), MP3 (320 kbps) or FLAC (24-bit, maximum compression). A `.cue` file and a text track list are written next to it with a track break at each song's entry. (*Generate mix → Cue sheet marks* can mark the middle or end of the blend instead.)
 6. **Export video** (MP4, H.264 + AAC): the **Visuals** tab chooses between
@@ -60,8 +60,7 @@ Actions tab, or push a `v*` tag).
 
 ### Adding visuals from Shadertoy
 
-Open a shader on shadertoy.com, copy its code from the editor (or *Download → JSON*), then
-**Visuals → Add from Shadertoy…** and paste it. It is stored on your computer for good. Single-pass and
+On **Shader library → Add from Shadertoy…** pick a tab: **Paste code** for a simple shader (or Shadertoy JSON), **Multi-pass** to paste each tab of a shader with buffers (Common, Buffer A–D, Image) and say what each iChannel reads, or **From a link** to download it by its address (no account or API key needed; a key is only a fallback). It is stored on your computer for good. Single-pass and
 multi-pass (Buffer A–D) shaders work, and music-reactive ones react to your mix. Inputs that need the
 internet, a webcam or video are replaced with noise. Eight original visuals are built in.
 

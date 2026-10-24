@@ -239,9 +239,13 @@ class TransitionTab(_Tab):
         self.beats.setSingleStep(4)
         self.len_label = QLabel()
         self.auto_btn = QPushButton("Back to the AI's choice")
+        self.fx = QCheckBox("Effects at this transition")
+        self.fx.setToolTip("Untick to turn off every effect around this transition (the AI's and yours). "
+                           "They are only muted, so ticking it again brings them back.")
         form.addRow("Style", self.type)
         form.addRow("Blend length", self.beats)
         form.addRow("", self.len_label)
+        form.addRow(self.fx)
         form.addRow(self.auto_btn)
         lay.addWidget(box)
         hint = QLabel("Tip: you can also drag a song left or right in the timeline to change how long it "
@@ -252,7 +256,14 @@ class TransitionTab(_Tab):
         self.type.currentIndexChanged.connect(self._apply)
         self.beats.editingFinished.connect(self._apply)
         self.auto_btn.clicked.connect(self._auto)
+        self.fx.toggled.connect(self._fx)
         self._refresh()
+
+    def _fx(self, on):
+        if self._busy or self._tr() is None:
+            return
+        i = self.idx()
+        self.state.edit(lambda p, lib: planmod.set_transition_fx(p, lib, i, on))
 
     def _tr(self):
         i = self.idx()
@@ -260,7 +271,7 @@ class TransitionTab(_Tab):
 
     def _refresh(self):
         tr = self._tr()
-        for w in (self.type, self.beats, self.auto_btn):
+        for w in (self.type, self.beats, self.auto_btn, self.fx):
             w.setEnabled(tr is not None)
         if tr is None:
             self.head.setText("Select a song that has another one after it")
@@ -271,6 +282,7 @@ class TransitionTab(_Tab):
         self.head.setText(f"<b>{a}</b> → <b>{b}</b>")
         self.type.setCurrentIndex(self.type.findData(tr.type))
         self.beats.setValue(tr.overlap_beats)
+        self.fx.setChecked(tr.fx)
         secs = planmod.overlap_seconds(self.state.plan, tr)
         self.len_label.setText(f"{tr.overlap_beats / 4:g} bars ≈ {secs:.1f} s" + ("" if tr.auto else "  (set by you)"))
         self.auto_btn.setEnabled(not tr.auto)
