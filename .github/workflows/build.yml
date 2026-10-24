@@ -1,4 +1,4 @@
-name: Build apps
+name: Build apps v3
 on:
   push: { tags: ["v*"] }
   workflow_dispatch:
@@ -21,42 +21,29 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-
-      - name: Set up FFmpeg
-        uses: FedericoCarboni/setup-ffmpeg@v3
-
-      - name: Linux GL/audio libraries
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libasound2-dev libpulse0
-        
+      # ffmpeg is bundled by the imageio-ffmpeg package, so no separate install is needed on any OS.
       - name: Linux GL/audio libraries
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libasound2-dev libpulse0
       - run: pip install -r requirements-dev.txt
+      # The runners have no GPU. Tests that need OpenGL skip themselves when it isn't there.
       - run: python -m pytest -x -q
         env:
           QT_QPA_PLATFORM: offscreen
+          LMM_AUDIO_BACKEND: "null"
       - run: pyinstaller packaging/lmm.spec --noconfirm
       - name: Zip
         shell: bash
         run: |
           cd dist
-          # Create a dedicated export folder for clean asset matching
           mkdir -p ../artifacts-to-upload
-          
-          if [ "$RUNNER_OS" = "Windows" ]; then 
-            7z a ../artifacts-to-upload/LazyMixtapeMaker-Windows.zip LazyMixtapeMaker;
-          elif [ "$RUNNER_OS" = "macOS" ]; then 
-            ditto -c -k --keepParent "Lazy Mixtape Maker.app" ../artifacts-to-upload/LazyMixtapeMaker-macOS.zip;
-          else 
-            tar czf ../artifacts-to-upload/LazyMixtapeMaker-Linux.tar.gz LazyMixtapeMaker; 
-          fi
-          
+          if [ "$RUNNER_OS" = "Windows" ]; then 7z a ../artifacts-to-upload/LazyMixtapeMaker-Windows.zip LazyMixtapeMaker;
+          elif [ "$RUNNER_OS" = "macOS" ]; then ditto -c -k --keepParent "Lazy Mixtape Maker.app" ../artifacts-to-upload/LazyMixtapeMaker-macOS.zip;
+          else tar czf ../artifacts-to-upload/LazyMixtapeMaker-Linux.tar.gz LazyMixtapeMaker; fi
       - uses: actions/upload-artifact@v4
         with:
           name: LazyMixtapeMaker-${{ matrix.name }}
-          path: artifacts-to-upload/*  # Only upload the compressed archives
-
+          path: "artifacts-to-upload/*"
 
   release:
     # Collects the three builds into a DRAFT GitHub release (nothing is public until you click Publish).
@@ -80,7 +67,6 @@ jobs:
           elif [ -n "$INPUT_TAG" ]; then TAG="$INPUT_TAG";
           else TAG="build-${GITHUB_RUN_NUMBER}"; fi
           ls -la release-files
-          # Re-running replaces an existing draft for the same tag; a published release is never touched.
           if gh release view "$TAG" --repo "$REPO" --json isDraft -q .isDraft 2>/dev/null | grep -q true; then
             gh release delete "$TAG" --repo "$REPO" --yes
           fi

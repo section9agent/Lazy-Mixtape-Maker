@@ -118,7 +118,7 @@ def test_project_editing_undo_and_persistence(mixtape, lib, tmp_path):
     assert len(h.project.markers) == 1
     h.edit(lambda q: q.add_marker(20, "Y", "Three"))
     f = tmp_path / "x.lmv"
-    sh = lib.add_from_text("void mainImage(out vec4 c, in vec2 p){ c = vec4(p/iResolution.xy, 0.3, 1.0); }", "Mine")
+    sh = lib.add("Mine", "void mainImage(out vec4 c, in vec2 p){ c = vec4(p/iResolution.xy, 0.3, 1.0); }", check=False)
     h.project.update_marker(h.project.markers[0].uid, shader=sh.id)
     save_project(h.project, f, lib)
     friend_dir = tmp_path / "friend"

@@ -20,6 +20,14 @@ def app():
     return QApplication.instance() or QApplication([])
 
 
+def _need_gl():
+    from lazy_mixtape_maker.visuals import make_context
+    try:
+        make_context().release()
+    except Exception as e:  # noqa: BLE001
+        pytest.skip(f"no OpenGL available: {e}")
+
+
 def spin(app, n=20, d=0.05):
     for _ in range(n):
         app.processEvents()
@@ -66,6 +74,7 @@ def test_studio_window_edit_flow(app, tmp_path, monkeypatch):
 
 def test_shader_manager(app, tmp_path, monkeypatch):
     monkeypatch.setenv("LMM_DATA_DIR", str(tmp_path / "data"))
+    _need_gl()
     from lazy_mixtape_maker.gui.panels import ThumbCache
     from lazy_mixtape_maker.gui.shader_manager import ShaderManager
     from lazy_mixtape_maker.visuals import ShaderLibrary
