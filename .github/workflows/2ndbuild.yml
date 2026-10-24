@@ -35,15 +35,15 @@ jobs:
       - name: Linux GL/audio libraries
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libasound2-dev libpulse0
-            
-     - name: Install Mesa 3D for Headless OpenGL (Windows)
+        
+      - name: Install Mesa 3D for Headless OpenGL (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
           curl -L -o mesa.7z https://github.com
           7z x mesa.7z -omesa -y
           # Move the software-rendering driver directly to the active Python directory
-            python -c "import sys, shutil, pathlib; p = pathlib.Path(sys.executable).parent; shutil.copy('mesa/x64/opengl32.dll', p / 'opengl32.dll')"
+          python -c "import sys, shutil, pathlib; p = pathlib.Path(sys.executable).parent; shutil.copy('mesa/x64/opengl32.dll', p / 'opengl32.dll')"
 
         
       - run: pip install -r requirements-dev.txt
