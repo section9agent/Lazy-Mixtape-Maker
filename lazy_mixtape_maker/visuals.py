@@ -238,6 +238,33 @@ def parse_shadertoy_json(text: str):
     return info.get("name", "Imported shader"), info.get("username", ""), code, warnings, passes
 
 
+def shader_to_json(sh: "Shader") -> str:
+    """Shadertoy-style JSON of a shader, so it can be backed up or shared and imported again."""
+    info = {"name": sh.name, "username": sh.author, "description": "exported from Lazy Mixtape Maker"}
+    if not sh.passes:
+        rps = [{"type": "image", "name": "Image", "code": sh.source, "inputs": [], "outputs": []}]
+    else:
+        rps = []
+        for p in sh.passes:
+            ins = []
+            for ch, kind in p.get("inputs", {}).items():
+                ent = {"channel": int(ch)}
+                if kind.startswith("buffer:"):
+                    ent.update(ctype="buffer", id="buf" + kind.split(":")[1])
+                elif kind == "audio":
+                    ent.update(ctype="music", id="audio")
+                elif kind == "keyboard":
+                    ent.update(ctype="keyboard", id="kb")
+                else:
+                    ent.update(ctype="texture", id="noise")
+                ins.append(ent)
+            outs = []
+            if p.get("type") == "buffer":
+                outs = [{"id": "buf" + p["name"][-1].upper(), "channel": 0}]
+            rps.append({"type": p["type"], "name": p["name"], "code": p["code"], "inputs": ins, "outputs": outs})
+    return json.dumps({"Shader": {"info": info, "renderpass": rps}}, indent=1)
+
+
 def fetch_from_shadertoy(url_or_id: str, api_key: str, timeout: float = 15.0):
     """Optional online import via the Shadertoy API (needs the user's own API key).
     Returns (name, author, code, warnings, url)."""

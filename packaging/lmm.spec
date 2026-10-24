@@ -18,7 +18,7 @@ excludes = ["tkinter", "matplotlib", "PySide6.QtWebEngineCore", "PySide6.QtWebEn
             "PySide6.QtQuick", "PySide6.QtQml", "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtPdf"]
 
 a = Analysis([str(ROOT / "packaging" / "entry.py")], pathex=[str(ROOT)], binaries=binaries, datas=datas,
-             hiddenimports=hidden + ["scipy.special._cdflib"], excludes=excludes)
+             hiddenimports=hidden + ["scipy.special._cdflib", "lazy_mixtape_maker.gui.studio_window", "lazy_mixtape_maker.studio"], excludes=excludes)
 pyz = PYZ(a.pure)
 icon = str(ROOT / "packaging" / ("icon.ico" if sys.platform == "win32" else "icon.icns"))
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="LazyMixtapeMaker", console=False,
@@ -27,4 +27,5 @@ coll = COLLECT(exe, a.binaries, a.datas, name="LazyMixtapeMaker")
 if sys.platform == "darwin":
     app = BUNDLE(coll, name="Lazy Mixtape Maker.app", icon=icon, bundle_identifier="app.lazymixtapemaker",
                  info_plist={"NSHighResolutionCapable": True, "CFBundleDocumentTypes": [
-                     {"CFBundleTypeName": "Lazy Mixtape session", "CFBundleTypeExtensions": ["lmm"], "CFBundleTypeRole": "Editor"}]})
+                     {"CFBundleTypeName": "Lazy Mixtape session", "CFBundleTypeExtensions": ["lmm"], "CFBundleTypeRole": "Editor"},
+                     {"CFBundleTypeName": "Lazy Mixtape visualization", "CFBundleTypeExtensions": ["lmv"], "CFBundleTypeRole": "Editor"}]})

@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel, Q
                                QMainWindow, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSplitter,
                                QTabWidget, QToolBar, QToolButton, QVBoxLayout, QWidget)
 
-from .. import __version__, audio_io, cue as cuemod, plan as planmod
+from .. import __version__, audio_io, cue as cuemod, plan as planmod, prefs
 from ..audio_io import SR
 from ..engine import analyze_library, export_session, transition_preview_plan
 from ..render import MissingSongsError, render_mix
@@ -22,9 +22,11 @@ from ..visuals import ShaderLibrary, make_context
 from . import theme
 from .player import AudioPlayer
 from .dialogs import AddVisualDialog, GenerateDialog
+from .shader_manager import ShaderManager
 from .panels import CuePanel, Inspector, ThumbCache, VisualsPanel, fmt_time
 from .state import AppState
 from .timeline import TimelineWidget, track_color
+from .tasks import TaskMixin
 from .workers import Worker
 
 ORG, APP = "LazyMixtapeMaker", "Lazy Mixtape Maker"
@@ -67,7 +69,7 @@ class TrackList(QListWidget):
             QTimer.singleShot(0, lambda: self.moved.emit(src, dst))
 
 
-class MainWindow(QMainWindow):
+class MainWindow(TaskMixin, QMainWindow):
     def __init__(self, shaders: ShaderLibrary | None = None):
         super().__init__()
         self.settings = QSettings(ORG, APP)
@@ -142,6 +144,8 @@ class MainWindow(QMainWindow):
         self.bottom.addTab(tl, "Timeline")
         self.bottom.addTab(self.cue, "Cue sheet")
         self.bottom.addTab(self.visuals, "Visuals")
+        self.library = ShaderManager(s.shaders, self.thumbs, "Use for the whole video")
+        self.bottom.addTab(self.library, "Shader library")
         split = QSplitter(Qt.Orientation.Vertical)
         split.addWidget(top); split.addWidget(self.bottom)
         split.setSizes([440, 360])
@@ -158,6 +162,8 @@ class MainWindow(QMainWindow):
         self.timeline.seek.connect(self._seek)
         self.cue.export_clicked.connect(self.export_cue)
         self.visuals.add_clicked.connect(self.add_visual)
+        self.library.changed.connect(lambda: (s.library_changed.emit(), s.changed.emit()))
+        self.library.use_clicked.connect(self._use_for_all)
 
     def _build_actions(self):
         def act(text, slot, shortcut=None, tip=None):
@@ -187,6 +193,11 @@ class MainWindow(QMainWindow):
         self.a_undo = act("Undo", self.state.undo, "Ctrl+Z")
         self.a_redo = act("Redo", self.state.redo, "Ctrl+Shift+Z")
         self.a_del = act("Remove selected song", self.remove_selected, "Delete")
+        self.a_studio = act("Visualization Studio…", self.open_studio, "Ctrl+Shift+V", "Make a video for a mixtape you already have")
+        self.a_overlay = act("Show cover art, artist and title on videos", self.toggle_overlay)
+        self.a_overlay.setCheckable(True)
+        self.a_overlay.setChecked(prefs.overlay_enabled())
+        self.a_overlay.setToolTip("On by default. Turn off to leave the card out of every video (mix videos and the studio).")
         self.a_quit = act("Quit", self.close, "Ctrl+Q")
         self.a_about = act("About", self.about)
         m = self.menuBar()
@@ -200,13 +211,17 @@ class MainWindow(QMainWindow):
         mx = m.addMenu("&Mix")
         for a in (self.a_gen, self.a_refresh, None, self.a_play, self.a_stop, self.a_trans):
             mx.addAction(a) if a else mx.addSeparator()
+        tm = m.addMenu("&Tools")
+        tm.addAction(self.a_studio)
+        sm = m.addMenu("&Settings")
+        sm.addAction(self.a_overlay)
         m.addMenu("&Help").addAction(self.a_about)
         tb = QToolBar("Main")
         tb.setMovable(False)
         tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.addToolBar(tb)
         for a in (self.a_add, self.a_add_folder, None, self.a_gen, None, self.a_play, self.a_stop, self.a_trans, None,
-                  self.a_audio, self.a_video):
+                  self.a_audio, self.a_video, None, self.a_studio):
             tb.addAction(a) if a else tb.addSeparator()
 
     # ------------------------------------------------------------------- playback
@@ -305,44 +320,12 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ tasks
     def run_task(self, title, fn, on_done):
-        if self.task is not None:
-            self.statusBar().showMessage("Please wait for the current job to finish.", 4000)
-            return
-        w = Worker(fn, self)
-        dlg = QProgressDialog(title, "Cancel", 0, 1000, self)
-        dlg.setWindowTitle(APP)
-        dlg.setWindowModality(Qt.WindowModality.WindowModal)
-        dlg.setMinimumDuration(0)
-        dlg.setAutoClose(False); dlg.setAutoReset(False)
-        dlg.setMinimumWidth(460)
-        dlg.canceled.connect(w.cancel)
-        w.progress.connect(lambda msg, f: (dlg.setLabelText(msg), dlg.setValue(int(max(0, min(1, f)) * 1000))))
-
-        def finish():
-            dlg.close(); dlg.deleteLater()
-            self.task, self.progress = None, None
-            w.deleteLater()
-
-        def ok(res):
-            finish()
-            try:
-                on_done(res)
-            except Exception as e:  # noqa: BLE001
-                QMessageBox.warning(self, APP, str(e))
-
-        def bad(msg):
-            finish()
+        def on_fail(msg):
             if "Cannot find these songs" in msg:
                 self._missing_check(force=True)
-            else:
-                QMessageBox.warning(self, APP, msg)
-
-        w.finished_ok.connect(ok)
-        w.failed.connect(bad)
-        w.cancelled.connect(lambda: (finish(), self.statusBar().showMessage("Cancelled", 3000)))
-        self.task, self.progress = w, dlg
-        dlg.setValue(0)
-        w.start()
+                return True
+            return False
+        TaskMixin.run_task(self, title, fn, on_done, on_fail)
 
     # --------------------------------------------------------------- songs
     def add_songs_dialog(self):
@@ -507,6 +490,25 @@ class MainWindow(QMainWindow):
 
         self.run_task("Rendering video…", job, done)
 
+    def _use_for_all(self, sid):
+        self.state.edit_video(lambda v: (setattr(v, "single_shader", sid), setattr(v, "mode", "single")))
+        self.statusBar().showMessage("The whole video will use this visual.", 4000)
+
+    def open_studio(self, path=None):
+        from .studio_window import StudioWindow
+        w = getattr(self, "_studio", None)
+        if w is None or not w.isVisible():
+            w = self._studio = StudioWindow(self.state.shaders, self.thumbs)
+            w.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+            w.show()
+        w.raise_(); w.activateWindow()
+        if path:
+            w.open_audio(path)
+
+    def toggle_overlay(self, on: bool):
+        prefs.set("show_overlay", bool(on))
+        self.statusBar().showMessage("Cover art, artist and title " + ("will appear on videos." if on else "are switched off for every video."), 5000)
+
     def add_visual(self):
         dlg = AddVisualDialog(self.state.shaders, self)
         if dlg.exec() and dlg.added:
@@ -640,7 +642,11 @@ class MainWindow(QMainWindow):
     def dropEvent(self, e):
         paths = [u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]
         sess = [p for p in paths if p.lower().endswith(".lmm")]
-        if sess and self._maybe_save():
+        vis = [p for p in paths if p.lower().endswith(".lmv")]
+        if vis:
+            self.open_studio()
+            self._studio.open_project(vis[0])
+        elif sess and self._maybe_save():
             self.load_session(sess[0])
         elif paths:
             self.add_files(paths)
@@ -652,7 +658,12 @@ class MainWindow(QMainWindow):
         if not self._maybe_save():
             ev.ignore()
             return
+        st_win = getattr(self, "_studio", None)
+        if st_win is not None and st_win.isVisible() and not st_win.close():
+            ev.ignore()
+            return
         self._tick.stop()
+        self.library.shutdown()
         self._player.close()
         self.thumbs.shutdown()
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -674,6 +685,9 @@ def run(argv):
     for a in argv[1:]:
         if a.lower().endswith(".lmm") and Path(a).exists():
             w.load_session(a)
+        elif a.lower().endswith(".lmv") and Path(a).exists():
+            w.open_studio()
+            w._studio.open_project(a)
         elif Path(a).exists():
             w.add_files([a])
     return app.exec()

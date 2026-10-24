@@ -1,0 +1,895 @@
+"""Visualization Studio: put visuals on a mixtape you already have."""
+from __future__ import annotations
+
+import dataclasses
+import shutil
+import tempfile
+from pathlib import Path
+
+import numpy as np
+from PySide6.QtCore import QRectF, QSettings, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QColor, QKeySequence, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
+                               QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
+                               QMenu, QMessageBox, QPushButton, QRadioButton, QScrollArea, QSplitter, QTableWidget,
+                               QTableWidgetItem, QTabWidget, QToolBar, QVBoxLayout, QWidget)
+
+from .. import audio_io, prefs, studio as st
+from ..video import MODE_LABELS, MODES, FrameComposer
+from ..visuals import ShaderLibrary, make_context
+from .panels import ThumbCache, fmt_time
+from .player import AudioPlayer
+from .shader_manager import ShaderManager
+from .tasks import APP, TaskMixin
+from .workers import FrameWorker
+
+PROJECT_FILTER = "Visualization project (*.lmv)"
+AUDIO_FILTER = "Music (*.mp3 *.wav *.flac *.m4a)"
+CUE_FILTER = "Cue sheet or track list (*.cue *.txt *.tracklist);;All files (*)"
+COLORS = ["#4cc9f0", "#f2a541", "#7fc8a9", "#c77dff", "#ef476f", "#ffd166", "#06d6a0", "#b388eb"]
+
+
+def clock(sec: float) -> str:
+    s = int(max(0, sec))
+    return f"{s // 3600}:{(s // 60) % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
+
+
+# ====================================================================== timeline
+class StudioTimeline(QWidget):
+    seek = Signal(float)
+    selected = Signal(str)
+    drag_begin = Signal()
+    dragged = Signal(str, float)
+    drag_end = Signal()
+    add_at = Signal(float)
+    delete = Signal(str)
+
+    H = 170
+
+    def __init__(self):
+        super().__init__()
+        self.peaks: np.ndarray | None = None
+        self.duration = 0.0
+        self.markers: list = []
+        self.sel = ""
+        self.playhead = 0.0
+        self.pps = 4.0
+        self._drag = ""
+        self.setFixedHeight(self.H)
+        self.setMouseTracking(True)
+        self._resize()
+
+    def _resize(self):
+        self.setFixedWidth(max(300, int(self.duration * self.pps) + 40))
+
+    def set_data(self, peaks, duration):
+        self.peaks, self.duration = peaks, duration
+        self._resize(); self.update()
+
+    def set_zoom(self, pps):
+        self.pps = float(min(200.0, max(0.05, pps)))
+        self._resize(); self.update()
+
+    def fit_to(self, width):
+        if self.duration > 0:
+            self.set_zoom(max(0.05, (width - 60) / self.duration))
+
+    def set_markers(self, markers, sel):
+        self.markers, self.sel = markers, sel
+        self.update()
+
+    def set_playhead(self, t):
+        self.playhead = t
+        self.update()
+
+    def _x(self, t):
+        return 20 + t * self.pps
+
+    def _t(self, x):
+        return min(max(0.0, (x - 20) / self.pps), self.duration or 0.0)
+
+    def _marker_at(self, x):
+        best, bd = "", 7
+        for m in self.markers:
+            d = abs(self._x(m.time) - x)
+            if d <= bd:
+                best, bd = m.uid, d
+        return best
+
+    # ------------------------------------------------------------------ paint
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        r = ev.rect()
+        p.fillRect(r, QColor("#14161c"))
+        mid = self.H / 2 + 8
+        if self.peaks is not None and self.duration > 0:
+            n = len(self.peaks)
+            p.setPen(QPen(QColor("#4a6fa5")))
+            for x in range(max(20, r.left()), min(self.width() - 20, r.right() + 1)):
+                i = int(min(n - 1, max(0, (x - 20) / max(1.0, self.duration * self.pps) * n)))
+                lo, hi = self.peaks[i]
+                p.drawLine(x, int(mid - hi * (self.H / 2 - 24)), x, int(mid - lo * (self.H / 2 - 24)) + 1)
+        # ruler
+        step = next((s for s in (1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600) if s * self.pps >= 70), 3600)
+        p.setPen(QPen(QColor("#8b93a1")))
+        t = 0.0
+        while t <= self.duration + 0.01:
+            x = int(self._x(t))
+            if r.left() - 60 <= x <= r.right() + 60:
+                p.drawLine(x, 0, x, 6)
+                p.drawText(x + 3, 14, clock(t))
+            t += step
+        # markers
+        for i, m in enumerate(self.markers):
+            x = int(self._x(m.time))
+            if not (r.left() - 200 <= x <= r.right() + 200):
+                continue
+            col = QColor(COLORS[i % len(COLORS)])
+            sel = m.uid == self.sel
+            p.setPen(QPen(col, 3 if sel else 2))
+            p.drawLine(x, 18, x, self.H)
+            label = f"{i + 1}. {m.artist + ' - ' if m.artist else ''}{m.title}"
+            fm = p.fontMetrics()
+            w = min(190, fm.horizontalAdvance(label) + 10)
+            box = QRectF(x, 20, w, 18)
+            p.fillRect(box, col if sel else QColor(col.red(), col.green(), col.blue(), 170))
+            p.setPen(QColor("#000"))
+            p.drawText(box.adjusted(5, 0, -3, 0), Qt.AlignmentFlag.AlignVCenter, fm.elidedText(label, Qt.TextElideMode.ElideRight, w - 8))
+        # playhead
+        x = int(self._x(self.playhead))
+        p.setPen(QPen(QColor("#ff4d4d"), 2))
+        p.drawLine(x, 0, x, self.H)
+        if self.duration <= 0:
+            p.setPen(QColor("#8b93a1"))
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Open an audio file to start")
+
+    # ------------------------------------------------------------------ mouse
+    def mousePressEvent(self, e):
+        if self.duration <= 0:
+            return
+        x = e.position().x()
+        uid = self._marker_at(x)
+        if e.button() == Qt.MouseButton.LeftButton:
+            if uid:
+                self.selected.emit(uid)
+                self._drag = uid
+                self.drag_begin.emit()
+            else:
+                self.seek.emit(self._t(x))
+        elif e.button() == Qt.MouseButton.RightButton:
+            menu = QMenu(self)
+            if uid:
+                self.selected.emit(uid)
+                menu.addAction("Remove this marker", lambda: self.delete.emit(uid))
+            else:
+                t = self._t(x)
+                menu.addAction(f"Add a song marker at {clock(t)}", lambda: self.add_at.emit(t))
+            menu.exec(e.globalPosition().toPoint())
+
+    def mouseMoveEvent(self, e):
+        x = e.position().x()
+        if self._drag:
+            self.dragged.emit(self._drag, round(self._t(x), 2))
+        else:
+            self.setCursor(Qt.CursorShape.SizeHorCursor if self._marker_at(x) else Qt.CursorShape.ArrowCursor)
+
+    def mouseReleaseEvent(self, e):
+        if self._drag:
+            self._drag = ""
+            self.drag_end.emit()
+
+    def mouseDoubleClickEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton and self.duration > 0 and not self._marker_at(e.position().x()):
+            self.add_at.emit(self._t(e.position().x()))
+
+
+# ======================================================================= window
+class StudioWindow(TaskMixin, QMainWindow):
+    def __init__(self, shaders: ShaderLibrary | None = None, thumbs: ThumbCache | None = None, parent=None):
+        super().__init__(parent)
+        self.settings = QSettings("LazyMixtapeMaker", "Lazy Mixtape Maker")
+        self.shaders = shaders or ShaderLibrary()
+        self._own_thumbs = thumbs is None
+        self.thumbs = thumbs or ThumbCache(self)
+        self.hist = st.StudioHistory(st.StudioProject())
+        self.file: Path | None = None
+        self.dirty = False
+        self.sel = ""
+        self.peaks = None
+        self.mono = None
+        self.playback: str | None = None
+        self.file_cover: str | None = None
+        self.tmp = Path(tempfile.mkdtemp(prefix="lmm_studio_"))
+        self._busy = False
+        self._preview_dirty = True
+        self._last_t = -1.0
+        self._comp: FrameComposer | None = None
+        self.player = AudioPlayer()
+        self.setAcceptDrops(True)
+        self.resize(1320, 880)
+        self._build_ui()
+        self._build_actions()
+        self.worker = FrameWorker(480, 270, self)
+        self.worker.frame.connect(self._frame)
+        self.worker.unavailable.connect(lambda m: self.screen.setText("Live preview needs OpenGL 3.3.\n" + m[:160]))
+        self.worker.start()
+        self.tick = QTimer(self)
+        self.tick.setInterval(40)
+        self.tick.timeout.connect(self._on_tick)
+        self.tick.start()
+        self.refresh(rebuild_lists=True)
+
+    @property
+    def project(self) -> st.StudioProject:
+        return self.hist.project
+
+    # ------------------------------------------------------------------- UI
+    def _build_ui(self):
+        # left: the songs
+        left = QWidget()
+        ll = QVBoxLayout(left)
+        ll.setContentsMargins(8, 8, 4, 4)
+        ll.addWidget(QLabel("<b>Songs in the mixtape</b> (where each one starts)"))
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Time", "Artist", "Title", "Visual"])
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.verticalHeader().hide()
+        h = self.table.horizontalHeader()
+        h.setStretchLastSection(True)
+        h.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        for c, w in enumerate((60, 120, 170)):
+            self.table.setColumnWidth(c, w)
+        ll.addWidget(self.table, 1)
+        row = QHBoxLayout()
+        self.b_add = QPushButton("Add marker here")
+        self.b_add.setToolTip("Add a song marker at the playhead (M)")
+        self.b_del = QPushButton("Remove")
+        self.b_cue = QPushButton("Import cue sheet…")
+        row.addWidget(self.b_add); row.addWidget(self.b_del); row.addStretch(1); row.addWidget(self.b_cue)
+        ll.addLayout(row)
+        self.note = QLabel()
+        self.note.setWordWrap(True)
+        self.note.setStyleSheet("color:#8b93a1")
+        ll.addWidget(self.note)
+
+        # middle: preview
+        mid = QWidget()
+        ml = QVBoxLayout(mid)
+        self.screen = QLabel("Open a mixtape to see its video here")
+        self.screen.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.screen.setFixedSize(480, 270)
+        self.screen.setStyleSheet("background:#0b0b10;border-radius:6px;color:#8b93a1")
+        ml.addWidget(self.screen, 0, Qt.AlignmentFlag.AlignHCenter)
+        tr = QHBoxLayout()
+        self.b_play = QPushButton("▶ Play")
+        self.b_play.setFixedWidth(90)
+        self.time = QLabel("0:00 / 0:00")
+        tr.addWidget(self.b_play); tr.addWidget(self.time); tr.addStretch(1)
+        ml.addLayout(tr)
+        ml.addStretch(1)
+
+        # right: the selected song + the video settings
+        right = QWidget()
+        rl = QVBoxLayout(right)
+        box = QGroupBox("Selected song")
+        f = QFormLayout(box)
+        self.f_time = QDoubleSpinBox(); self.f_time.setDecimals(1); self.f_time.setRange(0, 1e5); self.f_time.setSuffix(" s")
+        self.f_artist = QLineEdit(); self.f_title = QLineEdit()
+        self.f_visual = QComboBox()
+        cov = QHBoxLayout()
+        self.f_cover = QLabel("none"); self.f_cover.setStyleSheet("color:#8b93a1")
+        self.b_cover = QPushButton("Choose…"); self.b_nocover = QPushButton("Clear")
+        cov.addWidget(self.f_cover, 1); cov.addWidget(self.b_cover); cov.addWidget(self.b_nocover)
+        f.addRow("Starts at", self.f_time)
+        f.addRow("Artist", self.f_artist)
+        f.addRow("Title", self.f_title)
+        f.addRow("Cover art", cov)
+        f.addRow("Visual", self.f_visual)
+        rl.addWidget(box)
+        vb = QGroupBox("Video")
+        vl = QVBoxLayout(vb)
+        self.group = QButtonGroup(self)
+        self.radios = {}
+        labels = dict(MODE_LABELS)
+        labels["per_song"] = "I choose a visual for each song"
+        labels["single"] = "One visual for the whole video"
+        for m in MODES:
+            rb = QRadioButton(labels[m])
+            self.group.addButton(rb)
+            self.radios[m] = rb
+            vl.addWidget(rb)
+        self.single = QComboBox()
+        vl.addWidget(QLabel("The one visual:"))
+        vl.addWidget(self.single)
+        self.reroll = QPushButton("Pick different random visuals")
+        vl.addWidget(self.reroll)
+        f2 = QFormLayout()
+        self.blend = QDoubleSpinBox(); self.blend.setRange(0.5, 60); self.blend.setSingleStep(0.5); self.blend.setSuffix(" s")
+        self.blend.setToolTip("How long the visuals take to blend into each other at a song change")
+        self.res = QComboBox()
+        for label, wh in (("1280 × 720 (HD)", (1280, 720)), ("1920 × 1080 (Full HD)", (1920, 1080)),
+                          ("854 × 480", (854, 480)), ("1080 × 1080 (square)", (1080, 1080))):
+            self.res.addItem(label, wh)
+        self.fps = QComboBox()
+        for v in (24, 30, 60):
+            self.fps.addItem(f"{v} fps", v)
+        self.overlay = QCheckBox("Show cover art, artist and title (lower left)")
+        f2.addRow("Visual blend", self.blend); f2.addRow("Size", self.res); f2.addRow("Frame rate", self.fps)
+        vl.addLayout(f2)
+        vl.addWidget(self.overlay)
+        self.overlay_note = QLabel()
+        self.overlay_note.setWordWrap(True); self.overlay_note.setStyleSheet("color:#ffb454")
+        vl.addWidget(self.overlay_note)
+        rl.addWidget(vb)
+        rl.addStretch(1)
+
+        top = QSplitter(Qt.Orientation.Horizontal)
+        top.addWidget(left); top.addWidget(mid); top.addWidget(right)
+        top.setSizes([430, 520, 380])
+
+        # bottom: timeline + library
+        self.timeline = StudioTimeline()
+        self.scroll = QScrollArea()
+        self.scroll.setWidget(self.timeline)
+        self.scroll.setWidgetResizable(False)
+        self.scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.scroll.setFixedHeight(StudioTimeline.H + 18)
+        tl = QWidget()
+        tv = QVBoxLayout(tl)
+        tv.setContentsMargins(0, 0, 0, 0)
+        bar = QHBoxLayout()
+        bar.setContentsMargins(8, 4, 8, 0)
+        bar.addWidget(QLabel("Click to move the playhead · drag a marker to move it · double-click or right-click to add one"))
+        bar.addStretch(1)
+        for txt, tip, fn in (("−", "Zoom out", lambda: self.timeline.set_zoom(self.timeline.pps / 1.3)),
+                             ("+", "Zoom in", lambda: self.timeline.set_zoom(self.timeline.pps * 1.3)),
+                             ("Fit", "Fit the whole file", lambda: self.timeline.fit_to(self.scroll.viewport().width()))):
+            b = QPushButton(txt); b.setToolTip(tip); b.setFixedWidth(44); b.clicked.connect(fn); bar.addWidget(b)
+        tv.addLayout(bar)
+        tv.addWidget(self.scroll)
+        tv.addStretch(1)
+        self.library = ShaderManager(self.shaders, self.thumbs, "Use for the whole video")
+        self.tabs = QTabWidget()
+        self.tabs.addTab(tl, "Timeline")
+        self.tabs.addTab(self.library, "Shader library")
+        split = QSplitter(Qt.Orientation.Vertical)
+        split.addWidget(top); split.addWidget(self.tabs)
+        split.setSizes([520, 330])
+        self.setCentralWidget(split)
+        self.info = QLabel()
+        self.statusBar().addPermanentWidget(self.info)
+
+        # wiring
+        self.table.itemSelectionChanged.connect(self._table_sel)
+        self.table.cellDoubleClicked.connect(lambda r, c: self._seek(self._row_marker(r).time) if self._row_marker(r) else None)
+        self.b_add.clicked.connect(lambda: self.add_marker(self.timeline.playhead))
+        self.b_del.clicked.connect(lambda: self.remove_marker(self.sel))
+        self.b_cue.clicked.connect(self.import_cue)
+        self.b_play.clicked.connect(self.toggle_play)
+        self.timeline.seek.connect(self._seek)
+        self.timeline.selected.connect(self.select)
+        self.timeline.drag_begin.connect(self.hist.begin_gesture)
+        self.timeline.dragged.connect(self._dragged)
+        self.timeline.drag_end.connect(self._drag_end)
+        self.timeline.add_at.connect(self.add_marker)
+        self.timeline.delete.connect(self.remove_marker)
+        self.f_time.editingFinished.connect(lambda: self._edit_sel(time=self.f_time.value()))
+        self.f_artist.editingFinished.connect(lambda: self._edit_sel(artist=self.f_artist.text()))
+        self.f_title.editingFinished.connect(lambda: self._edit_sel(title=self.f_title.text()))
+        self.f_visual.activated.connect(self._pick_visual)
+        self.b_cover.clicked.connect(self._choose_cover)
+        self.b_nocover.clicked.connect(lambda: self._edit_sel(cover=""))
+        self.group.buttonToggled.connect(self._mode)
+        self.single.activated.connect(lambda _: self._video(single_shader=self.single.currentData()))
+        self.reroll.clicked.connect(lambda: self._video(seed=self.project.video.seed + 1))
+        self.blend.editingFinished.connect(lambda: self._video(blend=self.blend.value()))
+        self.res.activated.connect(lambda _: self._video(width=self.res.currentData()[0], height=self.res.currentData()[1]))
+        self.fps.activated.connect(lambda _: self._video(fps=self.fps.currentData()))
+        self.overlay.toggled.connect(lambda c: None if self._busy else self._video(show_overlay=c))
+        self.library.changed.connect(self._library_changed)
+        self.library.use_clicked.connect(lambda sid: self._video(single_shader=sid, mode="single"))
+
+    def _build_actions(self):
+        def act(text, slot, shortcut=None):
+            a = QAction(text, self)
+            a.triggered.connect(slot)
+            if shortcut:
+                a.setShortcut(QKeySequence(shortcut))
+            return a
+
+        self.a_open = act("Open audio…", self.open_audio_dialog, "Ctrl+O")
+        self.a_open_proj = act("Open project…", self.open_project_dialog, "Ctrl+Shift+O")
+        self.a_save = act("Save project", lambda: self.save_project(), "Ctrl+S")
+        self.a_save_as = act("Save project as…", lambda: self.save_project(True), "Ctrl+Shift+S")
+        self.a_cue = act("Import cue sheet…", self.import_cue, "Ctrl+I")
+        self.a_cue_out = act("Save cue sheet…", self.export_cue)
+        self.a_export = act("Export video…", self.export_video, "Ctrl+E")
+        self.a_undo = act("Undo", lambda: self._history(False), "Ctrl+Z")
+        self.a_redo = act("Redo", lambda: self._history(True), "Ctrl+Shift+Z")
+        self.a_mark = act("Add marker at playhead", lambda: self.add_marker(self.timeline.playhead), "M")
+        self.a_del = act("Remove selected marker", lambda: self.remove_marker(self.sel), "Delete")
+        self.a_play = act("Play / pause", self.toggle_play, "Space")
+        self.a_close = act("Close studio", self.close, "Ctrl+W")
+        m = self.menuBar()
+        fm = m.addMenu("&File")
+        for a in (self.a_open, self.a_open_proj, self.a_save, self.a_save_as, None, self.a_cue, self.a_cue_out, None,
+                  self.a_export, None, self.a_close):
+            fm.addAction(a) if a else fm.addSeparator()
+        em = m.addMenu("&Edit")
+        for a in (self.a_undo, self.a_redo, None, self.a_mark, self.a_del):
+            em.addAction(a) if a else em.addSeparator()
+        tb = QToolBar("Studio")
+        tb.setMovable(False)
+        tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.addToolBar(tb)
+        for a in (self.a_open, self.a_cue, None, self.a_play, self.a_mark, None, self.a_export):
+            tb.addAction(a) if a else tb.addSeparator()
+
+    # ------------------------------------------------------------- loading
+    def open_audio_dialog(self):
+        if not self._maybe_save():
+            return
+        p, _ = QFileDialog.getOpenFileName(self, "Open a mixtape", str(self.settings.value("last_dir", "")), AUDIO_FILTER)
+        if p:
+            self.settings.setValue("last_dir", str(Path(p).parent))
+            self.open_audio(p)
+
+    def open_audio(self, path):
+        path = Path(path)
+        try:
+            proj = st.new_project(path)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, APP, str(e))
+            return
+        self.player.pause()
+        playback = self.tmp / f"playback_{len(list(self.tmp.glob('playback_*')))}.flac"
+        cover = self.tmp / f"cover_{playback.stem}.jpg"
+
+        def job(cb, cancel):
+            cb("Reading the waveform…", 0.05)
+            peaks, mono = st.overview(path)
+            cb("Preparing the audio for playback…", 0.4)
+            st.make_playback_copy(path, playback)
+            has_cover = audio_io.extract_cover(path, cover)
+            return peaks, mono, str(cover) if has_cover else None
+
+        def done(res):
+            self.peaks, self.mono, self.file_cover = res
+            self.playback = str(playback)
+            self.hist.reset(proj)
+            self.file, self.dirty, self.sel = None, False, proj.markers[0].uid
+            self.timeline.set_data(self.peaks, proj.duration)
+            self.player.load(self.playback, 0.0)
+            self.refresh(rebuild_lists=True)
+            QTimer.singleShot(0, lambda: self.timeline.fit_to(self.scroll.viewport().width()))
+            side = next((path.with_suffix(e) for e in (".cue", ".tracklist.txt") if path.with_suffix(e).exists()), None)
+            if side and QMessageBox.question(self, APP, f"Found “{side.name}” next to the audio. Use it to mark where the songs change?") \
+                    == QMessageBox.StandardButton.Yes:
+                self._load_cue(side)
+
+        self.run_task("Opening the mixtape…", job, done)
+
+    def open_project_dialog(self):
+        if not self._maybe_save():
+            return
+        p, _ = QFileDialog.getOpenFileName(self, "Open a project", str(self.settings.value("last_proj_dir", "")), PROJECT_FILTER)
+        if p:
+            self.open_project(p)
+
+    def open_project(self, path):
+        try:
+            proj = st.load_project(path, self.shaders)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, APP, f"Couldn't open that project:\n{e}")
+            return
+        if not Path(proj.audio).is_file():
+            d = QFileDialog.getExistingDirectory(self, "The audio file can't be found — choose the folder that has it",
+                                                 str(self.settings.value("last_dir", "")))
+            if not d or not st.relink_audio(proj, [d]):
+                QMessageBox.warning(self, APP, "Couldn't find the audio for this project.")
+                return
+        self.settings.setValue("last_proj_dir", str(Path(path).parent))
+        self.player.pause()
+        playback = self.tmp / f"playback_{len(list(self.tmp.glob('playback_*')))}.flac"
+        cover = self.tmp / f"cover_{playback.stem}.jpg"
+
+        def job(cb, cancel):
+            cb("Reading the waveform…", 0.05)
+            peaks, mono = st.overview(proj.audio)
+            cb("Preparing the audio for playback…", 0.4)
+            st.make_playback_copy(proj.audio, playback)
+            return peaks, mono, str(cover) if audio_io.extract_cover(proj.audio, cover) else None
+
+        def done(res):
+            self.peaks, self.mono, self.file_cover = res
+            self.playback = str(playback)
+            self.hist.reset(proj)
+            self.file, self.dirty = Path(path), False
+            self.sel = proj.markers[0].uid if proj.markers else ""
+            self.timeline.set_data(self.peaks, proj.duration)
+            self.player.load(self.playback, 0.0)
+            self.refresh(rebuild_lists=True)
+            QTimer.singleShot(0, lambda: self.timeline.fit_to(self.scroll.viewport().width()))
+
+        self.run_task("Opening the project…", job, done)
+
+    def import_cue(self):
+        if not self._has_audio():
+            QMessageBox.information(self, APP, "Open an audio file first.")
+            return
+        p, _ = QFileDialog.getOpenFileName(self, "Import a cue sheet or track list", str(self.settings.value("last_dir", "")), CUE_FILTER)
+        if p:
+            self._load_cue(p)
+
+    def _load_cue(self, path):
+        try:
+            rows = st.import_cue_file(path)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, APP, str(e))
+            return
+        past = [r for r in rows if r["time"] > self.project.duration + 1]
+        if past:
+            QMessageBox.information(self, APP, f"{len(past)} entr{'y is' if len(past) == 1 else 'ies are'} later than the end of the audio "
+                                               "and were moved to the end. Check that this cue sheet belongs to this file.")
+        self._edit(lambda p: p.set_markers(rows))
+        self.sel = self.project.markers[0].uid if self.project.markers else ""
+        self.statusBar().showMessage(f"{len(rows)} songs marked from {Path(path).name}", 6000)
+        self.refresh(rebuild_lists=True)
+
+    def export_cue(self):
+        if not self.project.markers:
+            return
+        d = str(self.settings.value("last_export_dir", ""))
+        path, _ = QFileDialog.getSaveFileName(self, "Save cue sheet", str(Path(d) / (self.project.name + ".cue")), "Cue sheet (*.cue)")
+        if not path:
+            return
+        esc = lambda s: s.replace('"', "'")
+        lines = ['REM GENERATOR "Lazy Mixtape Maker"', f'TITLE "{esc(self.project.name)}"',
+                 f'FILE "{esc(Path(self.project.audio).name)}" WAVE']
+        for i, m in enumerate(self.project.markers, 1):
+            fr = int(round(m.time * 75))
+            lines += [f"  TRACK {i:02d} AUDIO", f'    TITLE "{esc(m.title)}"']
+            if m.artist:
+                lines.append(f'    PERFORMER "{esc(m.artist)}"')
+            lines.append(f"    INDEX 01 {fr // 4500:02d}:{(fr // 75) % 60:02d}:{fr % 75:02d}")
+        Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # ------------------------------------------------------------- editing
+    def _has_audio(self) -> bool:
+        return bool(self.project.audio) and self.project.duration > 0
+
+    def _edit(self, fn):
+        self.hist.edit(fn)
+        self.dirty = True
+        self._preview_dirty = True
+
+    def _after(self, rebuild=False):
+        self.refresh(rebuild_lists=rebuild)
+
+    def select(self, uid: str):
+        if uid != self.sel:
+            self.sel = uid
+            self.refresh()
+
+    def add_marker(self, t: float):
+        if not self._has_audio():
+            return
+        holder = {}
+        self._edit(lambda p: holder.setdefault("m", p.add_marker(t)))
+        self.sel = holder["m"].uid
+        self._after()
+
+    def remove_marker(self, uid: str):
+        if not uid or not self.project.find(uid):
+            return
+        self._edit(lambda p: p.remove_marker(uid))
+        self.sel = self.project.markers[0].uid if self.project.markers else ""
+        self._after()
+
+    def _edit_sel(self, **fields):
+        if self._busy or not self.sel or not self.project.find(self.sel):
+            return
+        cur = self.project.find(self.sel)
+        if all(getattr(cur, k) == v for k, v in fields.items()):
+            return
+        self._edit(lambda p: p.update_marker(self.sel, **fields))
+        self._after()
+
+    def _dragged(self, uid, t):
+        self.project.move_marker(uid, t)
+        self.dirty = True
+        self._preview_dirty = True
+        self.refresh(rebuild_lists=False, light=True)
+
+    def _drag_end(self):
+        self.hist.end_gesture()
+        self.refresh()
+
+    def _choose_cover(self):
+        if not self.sel:
+            return
+        p, _ = QFileDialog.getOpenFileName(self, "Cover art for this song", str(self.settings.value("last_dir", "")),
+                                           "Images (*.png *.jpg *.jpeg *.webp *.bmp)")
+        if p:
+            self._edit_sel(cover=p)
+
+    def _pick_visual(self, _):
+        sid = self.f_visual.currentData()
+        if not self.sel or not sid:
+            return
+        uid = self.sel
+        resolved = dict(st.resolved_visuals(self.project, self.shaders, self.project.duration))
+
+        def fn(p):
+            if p.video.mode != "per_song":
+                for m in p.markers:
+                    m.shader = resolved.get(m.uid, m.shader)
+                p.video.mode = "per_song"
+            p.find(uid).shader = sid
+        self._edit(fn)
+        self._after()
+
+    def _video(self, **fields):
+        if self._busy:
+            return
+        self._edit(lambda p: [setattr(p.video, k, v) for k, v in fields.items()])
+        self._after()
+
+    def _mode(self, btn, checked):
+        if self._busy or not checked:
+            return
+        m = next(k for k, r in self.radios.items() if r is btn)
+        if m == "per_song" and self.project.video.mode != "per_song":
+            resolved = dict(st.resolved_visuals(self.project, self.shaders, self.project.duration))
+
+            def fn(p):
+                for mk in p.markers:
+                    mk.shader = mk.shader or resolved.get(mk.uid, "")
+                p.video.mode = "per_song"
+            self._edit(fn)
+            self._after()
+        else:
+            self._video(mode=m)
+
+    def _library_changed(self):
+        self._preview_dirty = True
+        self.refresh(rebuild_lists=True)
+
+    def _history(self, redo: bool):
+        (self.hist.redo if redo else self.hist.undo)()
+        self.dirty = True
+        self._preview_dirty = True
+        if not self.project.find(self.sel):
+            self.sel = self.project.markers[0].uid if self.project.markers else ""
+        self.refresh(rebuild_lists=True)
+
+    # -------------------------------------------------------------- refresh
+    def _row_marker(self, row):
+        ms = self.project.markers
+        return ms[row] if 0 <= row < len(ms) else None
+
+    def _table_sel(self):
+        if self._busy:
+            return
+        rows = self.table.selectionModel().selectedRows()
+        if rows:
+            m = self._row_marker(rows[0].row())
+            if m:
+                self.select(m.uid)
+
+    def refresh(self, rebuild_lists: bool = False, light: bool = False):
+        p = self.project
+        self._busy = True
+        try:
+            has = self._has_audio()
+            self.timeline.set_markers(p.markers, self.sel)
+            if light:
+                return
+            resolved = dict(st.resolved_visuals(p, self.shaders, p.duration)) if has else {}
+            names = {s.id: s.name for s in self.shaders.all()}
+            self.table.setRowCount(len(p.markers))
+            for r, m in enumerate(p.markers):
+                vals = [clock(m.time), m.artist, m.title, names.get(resolved.get(m.uid, ""), "")]
+                for c, v in enumerate(vals):
+                    self.table.setItem(r, c, QTableWidgetItem(v))
+                if m.uid == self.sel:
+                    self.table.selectRow(r)
+            first = p.markers[0].time if p.markers else 0
+            self.note.setText(f"Before the first marker the video shows “{p.file_title or p.name}”." if has and first > 1 else "")
+            m = p.find(self.sel)
+            for w in (self.f_time, self.f_artist, self.f_title, self.f_visual, self.b_cover, self.b_nocover, self.b_del):
+                w.setEnabled(m is not None)
+            if rebuild_lists:
+                for combo in (self.f_visual, self.single):
+                    combo.clear()
+                    for sh in self.shaders.all():
+                        combo.addItem(sh.name, sh.id)
+                self.library.rebuild()
+            if m:
+                self.f_time.setMaximum(max(1.0, p.duration))
+                self.f_time.setValue(m.time)
+                self.f_artist.setText(m.artist); self.f_title.setText(m.title)
+                self.f_cover.setText(Path(m.cover).name if m.cover else "none")
+                self.f_visual.setCurrentIndex(max(0, self.f_visual.findData(resolved.get(m.uid, ""))))
+            else:
+                self.f_artist.clear(); self.f_title.clear(); self.f_cover.setText("none")
+            v = p.video
+            self.radios[v.mode].setChecked(True)
+            self.single.setCurrentIndex(max(0, self.single.findData(v.single_shader)))
+            self.single.setEnabled(v.mode == "single")
+            self.reroll.setEnabled(v.mode in ("random", "auto"))
+            self.blend.setValue(v.blend)
+            self.res.setCurrentIndex(max(0, self.res.findData((v.width, v.height))))
+            self.fps.setCurrentIndex(max(0, self.fps.findData(v.fps)))
+            self.overlay.setChecked(v.show_overlay)
+            self.overlay_note.setText("" if prefs.overlay_enabled() else
+                                      "The card is switched off for every video in the main window's Settings menu.")
+            for a in (self.a_save, self.a_save_as, self.a_cue_out, self.a_export, self.a_play, self.a_mark, self.a_cue):
+                a.setEnabled(has)
+            self.a_del.setEnabled(m is not None)
+            self.a_undo.setEnabled(self.hist.can_undo())
+            self.a_redo.setEnabled(self.hist.can_redo())
+            self.b_add.setEnabled(has); self.b_cue.setEnabled(has); self.b_play.setEnabled(has)
+            self.info.setText(f"{len(p.markers)} songs  ·  {clock(p.duration)}   " if has else "")
+            self.setWindowTitle(f"{(self.file.name if self.file else p.name) + (' *' if self.dirty else '')} — Visualization Studio")
+            self._comp = None
+            self._preview_dirty = True
+        finally:
+            self._busy = False
+
+    # -------------------------------------------------------------- playback
+    def _seek(self, t: float):
+        self.timeline.set_playhead(t)
+        if self.player.loaded:
+            self.player.seek(t)
+        self._preview_dirty = True
+
+    def toggle_play(self):
+        if not self._has_audio() or not self.player.loaded:
+            return
+        if self.player.playing:
+            self.player.pause()
+            self.b_play.setText("▶ Play")
+        else:
+            self.player.seek(self.timeline.playhead)
+            if not self.player.play():
+                QMessageBox.information(self, APP, "This computer has no audio output available for playback.\n\n" + self.player.error)
+            else:
+                self.b_play.setText("❚❚ Pause")
+
+    def _on_tick(self):
+        if not self._has_audio():
+            return
+        playing = self.player.playing
+        if playing:
+            t = self.player.position()
+            self.timeline.set_playhead(t)
+            x = int(t * self.timeline.pps + 20)
+            self.scroll.ensureVisible(x, 10, 160, 0)
+        elif self.player.ended:
+            self.player.ended = False
+            self.b_play.setText("▶ Play")
+            self.timeline.set_playhead(0.0)
+            self.player.seek(0.0)
+        t = self.timeline.playhead
+        self.time.setText(f"{clock(t)} / {clock(self.project.duration)}")
+        if playing or self._preview_dirty or t != self._last_t:
+            self._submit_frame(t)
+            self._last_t = t
+            self._preview_dirty = False
+
+    def _composer(self) -> FrameComposer | None:
+        if self._comp is None and self._has_audio():
+            p = self.project
+            segs, wins = st.build_segments(p, self.shaders, p.duration,
+                                           (self.mono, st.OVERVIEW_SR) if self.mono is not None else None, self.file_cover)
+            self._comp = FrameComposer(segs, wins, p.duration, p.video, self.shaders)
+        return self._comp
+
+    def _submit_frame(self, t):
+        comp = self._composer()
+        if comp is None:
+            return
+        k = int(t * 30)
+        self.worker.submit(lambda r: comp.draw(r, t, k))
+
+    def _frame(self, img, _tag):
+        self.screen.setPixmap(QPixmap.fromImage(img))
+
+    # -------------------------------------------------------------- saving
+    def _maybe_save(self) -> bool:
+        if not self.dirty or not self._has_audio():
+            return True
+        b = QMessageBox.question(self, APP, "Save changes to this project first?",
+                                 QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard |
+                                 QMessageBox.StandardButton.Cancel)
+        if b == QMessageBox.StandardButton.Cancel:
+            return False
+        if b == QMessageBox.StandardButton.Save:
+            return self.save_project()
+        return True
+
+    def save_project(self, save_as: bool = False) -> bool:
+        if not self._has_audio():
+            return False
+        path = self.file
+        if save_as is True or path is None:
+            d = str(self.settings.value("last_proj_dir", str(Path(self.project.audio).parent)))
+            p, _ = QFileDialog.getSaveFileName(self, "Save project", str(Path(d) / (self.project.name + ".lmv")), PROJECT_FILTER)
+            if not p:
+                return False
+            path = Path(p).with_suffix(".lmv")
+            self.settings.setValue("last_proj_dir", str(path.parent))
+        try:
+            self.project.name = path.stem
+            st.save_project(self.project, path, self.shaders)
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, APP, f"Couldn't save:\n{e}")
+            return False
+        self.file, self.dirty = path, False
+        self.refresh(rebuild_lists=False)
+        self.statusBar().showMessage(f"Saved {path}", 4000)
+        return True
+
+    def export_video(self):
+        if not self._has_audio():
+            return
+        try:
+            make_context().release()
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, APP, "Video export needs OpenGL 3.3, which isn't available here.\n\n" + str(e))
+            return
+        d = str(self.settings.value("last_export_dir", ""))
+        path, _ = QFileDialog.getSaveFileName(self, "Export the video", str(Path(d) / (self.project.name + ".mp4")), "MP4 video (*.mp4)")
+        if not path:
+            return
+        path = Path(path).with_suffix(".mp4")
+        self.settings.setValue("last_export_dir", str(path.parent))
+        proj = st.StudioProject.from_dict(self.project.to_dict())      # a copy: editing carries on meanwhile
+
+        def job(cb, cancel):
+            return st.render_studio(proj, path, self.shaders, progress=cb, cancel=cancel)
+
+        def done(res):
+            msg = f"Saved {res['video']}\nLength {fmt_time(res['seconds'])}"
+            if res["warnings"]:
+                msg += "\n\nNote:\n" + "\n".join(res["warnings"])
+            QMessageBox.information(self, APP, msg)
+
+        self.run_task("Rendering video…", job, done)
+
+    # --------------------------------------------------------------- events
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        for u in e.mimeData().urls():
+            f = u.toLocalFile()
+            low = f.lower()
+            if low.endswith(".lmv") and self._maybe_save():
+                self.open_project(f)
+            elif low.endswith((".cue", ".txt")) and self._has_audio():
+                self._load_cue(f)
+            elif Path(f).suffix.lower() in audio_io.AUDIO_EXTS and self._maybe_save():
+                self.open_audio(f)
+            break
+
+    def closeEvent(self, ev):
+        if self.task is not None:
+            self.task.cancel()
+            self.task.wait(5000)
+        if not self._maybe_save():
+            ev.ignore()
+            return
+        self.tick.stop()
+        self.player.close()
+        self.library.shutdown()
+        self.worker.stop()
+        self.worker.wait(3000)
+        if self._own_thumbs:
+            self.thumbs.shutdown()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        ev.accept()

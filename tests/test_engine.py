@@ -142,10 +142,9 @@ def test_render_and_exports(session, tmp_path):
     assert info.format == "FLAC" and info.subtype == "PCM_24" and info.samplerate == 44100
 
     res = export_session(session, tmp_path / "mix.mp3", write_cue=False)
-    probe = json.loads(subprocess.run(
-        [audio_io.ffprobe(), "-v", "error", "-show_entries", "stream=bit_rate,codec_name", "-of", "json", res["audio"]],
-        capture_output=True, text=True).stdout)["streams"][0]
-    assert probe["codec_name"] == "mp3" and 315000 <= int(probe["bit_rate"]) <= 325000
+    from mutagen.mp3 import MP3
+    info3 = MP3(res["audio"]).info
+    assert 315000 <= info3.bitrate <= 325000 and info3.sample_rate == 44100
 
     res = export_session(session, tmp_path / "mix.wav", write_cue=False)
     assert sf.info(res["audio"]).subtype == "PCM_24"
@@ -189,3 +188,55 @@ def test_clips_mode(songs):
         assert 8 <= t.src_end - t.src_start <= 20
     audio = render_mix(s.plan, s.library, s.paths)
     assert audio.shape[1] / 44100 < 4 * 20
+
+
+def _noise_buf(sr=44100, secs=4):
+    rng = np.random.default_rng(3)
+    buf = np.zeros((2, sr * secs + int(effects.TAIL_SECONDS * sr)), np.float32)
+    buf[:, : sr * secs] = rng.uniform(-0.5, 0.5, (2, sr * secs)).astype(np.float32)
+    return buf
+
+
+def test_cut_chops_in_time():
+    sr = 44100
+    buf = _noise_buf()
+    out = effects.apply_effect(buf.copy(), sr, 2 * sr, {"type": "cut", "params": {"mode": "gate", "division": 0.5, "duty": 0.5}}, sr, 120.0)
+    seg = np.abs(out[0, sr + 2000: 3 * sr - 2000])
+    quiet = (seg < 1e-4).mean()
+    assert 0.35 < quiet < 0.65, quiet                      # about half of the time the fader is closed
+    # gate slices follow the tempo: one beat at 120 bpm = 22050 samples, half-beat open/closed => 11025 period
+    env = (np.convolve(np.abs(out[0, 2 * sr: 2 * sr + 44100]), np.ones(200) / 200, "same") > 0.05).astype(int)
+    edges = np.nonzero(np.diff(env) == 1)[0]
+    assert len(edges) >= 3 and abs(np.median(np.diff(edges)) - 11025) < 300     # an 8th note at 120 bpm
+    # bass kill keeps the highs but removes lows on the closed slices
+    kill = effects.apply_effect(buf.copy(), sr, 2 * sr, {"type": "cut", "params": {"mode": "bass_kill"}}, sr, 120.0)
+    assert np.abs(kill[:, 2 * sr: 4 * sr]).mean() > 0.1
+    assert np.abs(kill[:, 2 * sr: 4 * sr] - buf[:, 2 * sr: 4 * sr]).mean() > 0.002
+
+
+def test_stutter_repeats_the_first_slice():
+    sr = 44100
+    buf = _noise_buf()
+    out = effects.apply_effect(buf.copy(), sr, sr, {"type": "stutter", "params": {"beats": 0.5, "roll": "no"}}, sr, 120.0)
+    D = int(0.5 * 60.0 / 120.0 * sr)
+    a = out[0, sr + 200: sr + D - 200]
+    b = out[0, sr + D + 200: sr + 2 * D - 200]
+    assert np.corrcoef(a, b)[0, 1] > 0.99                  # the same slice, again
+    assert not np.allclose(buf[0, sr + D: sr + 2 * D], out[0, sr + D: sr + 2 * D])
+
+
+def test_ai_can_choose_the_new_effects():
+    import random
+    from lazy_mixtape_maker.plan import MixSettings, MixPlan, TrackPlan, Transition, _auto_effects
+    seen = set()
+    for seed in range(300):
+        rng = random.Random(seed)
+        a = TrackPlan(song_id="a", src_start=0, src_end=200); b = TrackPlan(song_id="b", src_start=0, src_end=200)
+        a.bpm = b.bpm = 120.0
+        tr = Transition(a.uid, b.uid, type="eq_swap" if seed % 3 else "cut_fx", overlap_beats=32 if seed % 3 else 0)
+        plan = MixPlan(tracks=[a, b], transitions=[tr], settings=MixSettings())
+        plan.master_bpm = 120.0
+        tr.tempo = 120.0
+        _auto_effects(a, b, tr, plan, rng)
+        seen |= {e.type for e in a.effects + b.effects}
+    assert {"cut", "stutter"} <= seen

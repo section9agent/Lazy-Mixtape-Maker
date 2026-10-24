@@ -22,7 +22,8 @@ class GenerateDialog(QDialog):
         self.mode.addItem("Short clips — highlight of each song (rave.dj style)", "clips")
         self.mode.setCurrentIndex(self.mode.findData(settings.mode))
         self.clip = QSpinBox(); self.clip.setRange(10, 120); self.clip.setSuffix(" seconds"); self.clip.setValue(int(settings.clip_seconds))
-        self.bars = QSpinBox(); self.bars.setRange(1, 32); self.bars.setSuffix(" bars"); self.bars.setValue(settings.overlap_bars)
+        self.bars = QSpinBox(); self.bars.setRange(1, 64); self.bars.setSuffix(" bars")
+        self.bars.setToolTip("The AI uses each song's whole outro and the next song's whole intro for the blend, up to this many bars."); self.bars.setValue(settings.overlap_bars)
         self.style = QComboBox()
         for k, v in (("auto", "Let the AI choose"), ("eq_swap", "Bass-swap blends"), ("crossfade", "Crossfades"),
                      ("cut", "Hard cuts with effects")):
@@ -46,7 +47,7 @@ class GenerateDialog(QDialog):
         self.stretch = QSpinBox(); self.stretch.setRange(2, 30); self.stretch.setSuffix(" %"); self.stretch.setValue(int(settings.max_tempo_stretch * 100))
         form.addRow("Style", self.mode)
         form.addRow("Clip length", self.clip)
-        form.addRow("Blend length", self.bars)
+        form.addRow("Longest blend", self.bars)
         form.addRow("Transitions", self.style)
         form.addRow("Tempo", self.tempo)
         form.addRow("Cue sheet marks", self.cue)

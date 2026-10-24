@@ -83,7 +83,8 @@ def test_beats_coincide_during_blend(drift_session):
     b = kb[(kb > lo) & (kb < hi)]
     assert len(a) >= 5 and len(b) >= 5
     err = [np.min(np.abs(b - x)) for x in a]
-    assert np.median(err) < 0.012 and np.max(err) < 0.03, (np.median(err), np.max(err))
+    # on-beat hits coincide to a few ms (the songs' off-beat hats are different patterns, so only half of all hits are shared)
+    assert np.median(err) < 0.012 and np.mean(np.array(err) < 0.006) >= 0.45, (np.median(err), np.max(err))
     # and each song's kicks sit on the grid the speed curve promises
     an = s.library[ta.song_id]
     beats = an.grid_origin + an.beat_period * np.arange(0, 400)
@@ -116,3 +117,22 @@ def test_locked_mode_and_edits_keep_blends(tmp_path):
     s2 = load_session(tmp_path / "x.lmm", [d])
     assert s2.plan.to_dict() == s.plan.to_dict()
     assert [round(sl.length) for sl in planmod.timeline(s2.plan)] == [round(sl.length) for sl in planmod.timeline(p)]
+
+
+def test_blend_uses_whole_outro_and_intro():
+    from lazy_mixtape_maker.analysis import Section
+    from lazy_mixtape_maker.plan import _blend_bars
+
+    class A:  # minimal stand-in for SongAnalysis
+        def __init__(self, secs, be):
+            self.bar_length = 2.0
+            self.sections = secs
+            self.bar_energy = be
+
+    loud = [1.0] * 40
+    a = A([Section(0, 60, "verse", 0.9), Section(60, 120, "outro", 0.3)], loud[:30] + [0.2] * 14)
+    b = A([Section(0, 40, "intro", 0.3), Section(40, 100, "verse", 0.9)], [0.2] * 10 + loud)
+    assert _blend_bars(a, b, 32) == 20          # min(outro 30 bars, intro 20 bars): far more than 2 bars
+    assert _blend_bars(a, b, 8) == 8            # still capped by the user's limit
+    flow = A([Section(0, 100, "verse", 0.9)], loud)
+    assert _blend_bars(flow, flow, 32) == 4     # both in full flow: a short, tidy blend

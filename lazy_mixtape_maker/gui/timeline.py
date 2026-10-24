@@ -26,7 +26,7 @@ SECTION_COLORS = {
 }
 FX_COLORS = {
     "echo": "#4cc9f0", "delay": "#4895ef", "reverb": "#b388eb", "filter": "#ffd166",
-    "flange": "#06d6a0", "backspin": "#ef476f",
+    "flange": "#06d6a0", "backspin": "#ef476f", "cut": "#ff9f1c", "stutter": "#2ec4b6",
 }
 
 

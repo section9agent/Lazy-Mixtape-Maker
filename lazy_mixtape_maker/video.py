@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import audio_io
+from . import audio_io, prefs
 from .analysis import SongAnalysis
 from .audio_io import SR
 from .plan import MixPlan, timeline
@@ -40,7 +40,8 @@ class VideoSettings:
     width: int = 1280
     height: int = 720
     fps: int = 30
-    seed: int = 0
+    seed: int = field(default_factory=lambda: random.randrange(1, 1 << 30))   # reshuffles the random picks
+    blend: float = 6.0               # visual cross-fade length (studio; mixes follow the audio blend)
     show_overlay: bool = True        # cover art + artist/title, lower left
     crf: int = 18                    # x264 quality (lower = better)
     preset: str = "medium"           # x264 speed preset
@@ -88,36 +89,57 @@ def _song_energy(an: SongAnalysis, t) -> float:
     return 0.45 * tempo + 0.55 * dens
 
 
-def resolve_assignments(plan: MixPlan, lib: dict[str, SongAnalysis], vs: VideoSettings,
-                        shaders: ShaderLibrary) -> list[str]:
-    """One shader id per track, according to the chosen mode."""
+_ENERGY_ORDER = {"calm": 0, "mid": 1, "high": 2}
+
+
+def pick_visuals(keys: list[str], energies: list[float | None], vs: VideoSettings,
+                 shaders: ShaderLibrary) -> list[str]:
+    """One shader id per item (song / marker) according to vs.mode.
+
+    'random' and 'auto' draw from the *whole* pool: a pick is not allowed to be any of the last few,
+    and the more often a visual has already been used the less likely it is, so every visual gets a
+    turn before any repeats. 'auto' additionally leans towards visuals whose energy suits the song
+    (a gentle weight, not a filter, so it never collapses to two favourites)."""
     pool = [s for s in shaders.all() if not s.warnings or s.builtin] or list(BUILTIN.values())
     ids = [s.id for s in pool]
-    n = len(plan.tracks)
+    n = len(keys)
     if not n:
         return []
     single = vs.single_shader if shaders.get(vs.single_shader) else ids[0]
     if vs.mode == "single":
         return [single] * n
-    out: list[str] = []
     rng = random.Random(f"{vs.seed}:visuals")
-    for i, t in enumerate(plan.tracks):
-        prev = out[-1] if out else None
-        if vs.mode == "per_song" and shaders.get(vs.assignments.get(t.uid, "")):
-            pick = vs.assignments[t.uid]
-        elif vs.mode == "random":
-            options = [x for x in ids if x != prev] or ids
-            pick = rng.choice(options)
-        else:  # auto (and per_song tracks nobody has set yet)
-            an = lib[t.song_id]
-            e = _song_energy(an, t)
-            want = "calm" if e < 0.42 else "mid" if e < 0.62 else "high"
-            cands = [s.id for s in pool if s.energy == want] or ids
-            cands = [x for x in cands if x != prev] or cands
-            r = random.Random(f"{vs.seed}:{an.id}")
-            pick = r.choice(sorted(cands))
+    uses = {i: 0 for i in ids}
+    recent: list[str] = []
+    memory = min(max(1, len(ids) // 2), 5) if len(ids) > 1 else 0
+    energy_of = {s.id: _ENERGY_ORDER.get(s.energy, 1) for s in pool}
+    out: list[str] = []
+    for key, e in zip(keys, energies):
+        fixed = vs.assignments.get(key, "") if vs.mode == "per_song" else ""
+        if fixed and shaders.get(fixed):
+            pick = fixed
+        else:
+            ok = [i for i in ids if i not in recent[-memory:]] if memory else list(ids)
+            weights = []
+            for i in ok:
+                w = 1.0 / (1.0 + uses[i]) ** 1.5
+                if vs.mode != "random" and e is not None:
+                    want = 0 if e < 0.42 else 1 if e < 0.62 else 2
+                    w *= (3.0, 1.6, 0.6)[abs(energy_of[i] - want)]
+                weights.append(w)
+            pick = rng.choices(ok, weights=weights)[0]
+        uses[pick] = uses.get(pick, 0) + 1
+        recent.append(pick)
         out.append(pick)
     return out
+
+
+def resolve_assignments(plan: MixPlan, lib: dict[str, SongAnalysis], vs: VideoSettings,
+                        shaders: ShaderLibrary) -> list[str]:
+    """One shader id per track, according to the chosen mode."""
+    keys = [t.uid for t in plan.tracks]
+    energies = [_song_energy(lib[t.song_id], t) for t in plan.tracks]
+    return pick_visuals(keys, energies, vs, shaders)
 
 
 # ------------------------------------------------------------------ cover-art card
@@ -212,10 +234,9 @@ def make_card(artist: str, title: str, cover_path: str | None, frame_h: int, max
 class AudioTexture:
     """Shadertoy's music input: a 512x2 texture, row 0 = spectrum, row 1 = waveform."""
 
-    N = 2048
-
     def __init__(self, mix: np.ndarray | None, sr: int = SR):
         self.sr = sr
+        self.N = 1024 if sr <= 24000 else 2048        # 512 bins spanning 0 .. ~11 kHz either way
         self.mono = None if mix is None else np.ascontiguousarray(mix.mean(axis=0), dtype=np.float32)
         self.win = np.hanning(self.N).astype(np.float32)
         self.prev = np.zeros(512, dtype=np.float32)
@@ -533,6 +554,122 @@ def _state_at(t: float, starts, wins):
 
 
 # ------------------------------------------------------------------------ the render
+@dataclass
+class Segment:
+    """One stretch of the video: a song (or a marker in the studio) with its visual and card."""
+    uid: str
+    start: float                 # seconds on the timeline
+    shader: str = "builtin:plasma"
+    artist: str = ""
+    title: str = ""
+    cover: str | None = None
+
+
+def _encode_cmd(w, h, fps, audio_path, out_path, vs):
+    return [audio_io.ffmpeg(), "-v", "error", "-nostdin", "-y",
+            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "-",
+            "-i", str(audio_path), "-map", "0:v", "-map", "1:a", "-vf", "vflip",
+            "-c:v", "libx264", "-preset", vs.preset, "-crf", str(vs.crf), "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "320k", "-shortest", "-movflags", "+faststart", str(out_path)]
+
+
+class FrameComposer:
+    """Draws the picture for any moment of a video made of segments (shared by the exporter and the
+    live previews)."""
+
+    def __init__(self, segments: list[Segment], wins: list, seconds: float, vs: VideoSettings,
+                 shaders: ShaderLibrary):
+        self.segments, self.wins, self.seconds, self.vs = segments, wins, seconds, vs
+        self.starts = [sg.start for sg in segments]
+        self.shader_of = [shaders.get(sg.shader) or BUILTIN["builtin:plasma"] for sg in segments]
+        self.single = vs.mode == "single"
+        self.overlay = bool(vs.show_overlay) and prefs.overlay_enabled()     # per-video AND the app-wide switch
+
+    def draw(self, r: "GLRenderer", t: float, k: int) -> bytes:
+        vs, segs = self.vs, self.segments
+        h = r.h
+        r.update_audio(t)
+        out_i, in_i, u = _state_at(t, self.starts, self.wins)
+
+        def stime(i):  # shader clock: global for "single", else time since that part started
+            return t if self.single else t - self.starts[i]
+
+        r.draw_shader(self.shader_of[in_i], stime(in_i), k, 0)
+        mixab = 0.0
+        if not self.single and out_i is not None and self.shader_of[out_i].id != self.shader_of[in_i].id:
+            r.draw_shader(self.shader_of[out_i], stime(out_i), k, 1)
+            mixab = 1.0 - u          # scene[1] fades out as the new one fades in
+        fade = min(1.0, t / 1.0) * min(1.0, max(0.0, (self.seconds - t) / 1.5))
+        ca = cb = None
+        aa = ab = 0.0
+        if self.overlay:
+            def card_for(i):
+                sg = segs[i]
+                return r.card(f"{sg.uid}|{sg.artist}|{sg.title}|{sg.cover}", lambda: make_card(sg.artist, sg.title, sg.cover, h, int(r.w * 0.55)))
+
+            ca = card_for(in_i)
+            aa = min(1.0, t / 1.5)
+            if out_i is not None:
+                # one after the other, so the two cards never overprint: old fades out, then new fades in
+                aa = _smooth(2.0 * u - 1.0)
+                cb = card_for(out_i)
+                ab = _smooth(1.0 - 2.0 * u)
+        return r.composite(mixab, ca, aa, cb, ab, fade)
+
+
+def render_segments(segments: list[Segment], wins: list, seconds: float, out_path, vs: VideoSettings,
+                    shaders: ShaderLibrary, audio_path, texture_audio: np.ndarray | None = None,
+                    texture_sr: int = SR, progress=None, cancel=None) -> dict:
+    """The shared video renderer used by mixes and by the visualization studio.
+
+    wins[i-1] = (fade_start, fade_end) of the visual cross-fade into segments[i].
+    audio_path is muxed as the soundtrack; texture_audio only feeds music-reactive shaders."""
+    out_path = Path(out_path)
+    w, h = (int(vs.width) // 2 * 2), (int(vs.height) // 2 * 2)
+    say = progress or (lambda msg, frac: None)
+    if not segments:
+        raise audio_io.AudioError("There is nothing to put in the video.")
+
+    def check():
+        if cancel and cancel():
+            raise Cancelled("Cancelled")
+
+    n_frames = int(math.ceil(seconds * vs.fps))
+    comp = FrameComposer(segments, wins, seconds, vs, shaders)
+    r = GLRenderer(w, h, AudioTexture(texture_audio, texture_sr), fps=vs.fps)
+    proc = None
+    try:
+        proc = subprocess.Popen(_encode_cmd(w, h, vs.fps, audio_path, out_path, vs),
+                                stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        for k in range(n_frames):
+            if k % 8 == 0:
+                check()
+                say(f"rendering video {k}/{n_frames}", k / max(1, n_frames))
+            proc.stdin.write(comp.draw(r, k / vs.fps, k))
+        proc.stdin.close()
+        err = proc.stderr.read().decode(errors="replace")
+        if proc.wait() != 0:
+            raise audio_io.AudioError("ffmpeg could not encode the video: " + err[:500])
+    except BrokenPipeError:
+        err = proc.stderr.read().decode(errors="replace")
+        raise audio_io.AudioError("ffmpeg stopped unexpectedly: " + err[:500]) from None
+    except BaseException:
+        if proc is not None:
+            proc.kill()
+        if out_path.exists():
+            try:
+                out_path.unlink()
+            except OSError:
+                pass
+        raise
+    finally:
+        warnings = list(r.warnings)
+        r.release()
+    say("done", 1.0)
+    return {"video": str(out_path), "seconds": seconds, "frames": n_frames, "warnings": warnings,
+            "visuals": [s.name for s in comp.shader_of]}
+
+
 def render_video(plan: MixPlan, lib: dict[str, SongAnalysis], paths: dict[str, str], out_path,
                  vs: VideoSettings | None = None, shaders: ShaderLibrary | None = None,
                  audio: np.ndarray | None = None, progress=None, cancel=None) -> dict:
@@ -541,98 +678,25 @@ def render_video(plan: MixPlan, lib: dict[str, SongAnalysis], paths: dict[str, s
 
     vs = vs or VideoSettings()
     shaders = shaders or ShaderLibrary()
-    out_path = Path(out_path)
-    w, h = (int(vs.width) // 2 * 2), (int(vs.height) // 2 * 2)
     say = progress or (lambda msg, frac: None)
-
-    def check():
-        if cancel and cancel():
-            raise Cancelled("Cancelled")
-
     if audio is None:
         audio = render_mix(plan, lib, paths, progress=lambda m, f: say(m, 0.3 * f))
-    check()
+    if cancel and cancel():
+        raise Cancelled("Cancelled")
     seconds = audio.shape[1] / SR
-    n_frames = int(math.ceil(seconds * vs.fps))
     starts, wins = frame_schedule(plan, seconds)
     chosen = resolve_assignments(plan, lib, vs, shaders)
-    shader_of = [shaders.get(i) or BUILTIN["builtin:plasma"] for i in chosen]
-    single = vs.mode == "single"
-
     with tempfile.TemporaryDirectory(prefix="lmm_video_") as tmp:
         tmp = Path(tmp)
         wav = tmp / "mix.wav"
         audio_io.write_audio(wav, audio)
         covers: dict[str, str | None] = {}
-        for t in plan.tracks:
+        segs = []
+        for t, sid, st in zip(plan.tracks, chosen, starts):
             if t.song_id not in covers:
                 p = tmp / f"cover_{len(covers)}.jpg"
                 covers[t.song_id] = str(p) if audio_io.extract_cover(paths[t.song_id], p) else None
-
-        def card_for(r: GLRenderer, i: int):
-            an = lib[plan.tracks[i].song_id]
-            key = plan.tracks[i].uid
-            return r.card(key, lambda: make_card(an.artist, an.title, covers[an.id], h, int(w * 0.55)))
-
-        r = GLRenderer(w, h, AudioTexture(audio), fps=vs.fps)
-        cmd = [audio_io.ffmpeg(), "-v", "error", "-nostdin", "-y",
-               "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}", "-r", str(vs.fps), "-i", "-",
-               "-i", str(wav), "-map", "0:v", "-map", "1:a", "-vf", "vflip",
-               "-c:v", "libx264", "-preset", vs.preset, "-crf", str(vs.crf), "-pix_fmt", "yuv420p",
-               "-c:a", "aac", "-b:a", "320k", "-shortest", "-movflags", "+faststart", str(out_path)]
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-        try:
-            for k in range(n_frames):
-                if k % 8 == 0:
-                    check()
-                    say(f"rendering video {k}/{n_frames}", 0.3 + 0.7 * k / max(1, n_frames))
-                t = k / vs.fps
-                r.update_audio(t)
-                out_i, in_i, u = _state_at(t, starts, wins)
-
-                def stime(i):  # shader clock: global for "single", else time since that song started
-                    return t if single else t - starts[i]
-
-                if single and chosen:
-                    r.draw_shader(shader_of[0], t, k, 0)
-                    mixab = 0.0
-                else:
-                    r.draw_shader(shader_of[in_i], stime(in_i), k, 0)
-                    mixab = 0.0
-                    if out_i is not None and shader_of[out_i].id != shader_of[in_i].id:
-                        r.draw_shader(shader_of[out_i], stime(out_i), k, 1)
-                        mixab = 1.0 - u          # scene[1] fades out as the new one fades in
-                fade = min(1.0, t / 1.0) * min(1.0, max(0.0, (seconds - t) / 1.5))
-                ca = cb = None
-                aa = ab = 0.0
-                if vs.show_overlay:
-                    ca = card_for(r, in_i)
-                    aa = min(1.0, t / 1.5)
-                    if out_i is not None:
-                        # one after the other, so the two cards never overprint: old fades out, then new fades in
-                        aa = _smooth(2.0 * u - 1.0)
-                        cb = card_for(r, out_i)
-                        ab = _smooth(1.0 - 2.0 * u)
-                frame = r.composite(mixab, ca, aa, cb, ab, fade)
-                proc.stdin.write(frame)
-            proc.stdin.close()
-            err = proc.stderr.read().decode(errors="replace")
-            if proc.wait() != 0:
-                raise audio_io.AudioError("ffmpeg could not encode the video: " + err[:500])
-        except BrokenPipeError:
-            err = proc.stderr.read().decode(errors="replace")
-            raise audio_io.AudioError("ffmpeg stopped unexpectedly: " + err[:500]) from None
-        except BaseException:
-            proc.kill()
-            if out_path.exists():
-                try:
-                    out_path.unlink()
-                except OSError:
-                    pass
-            raise
-        finally:
-            warnings = list(r.warnings)
-            r.release()
-    say("done", 1.0)
-    return {"video": str(out_path), "seconds": seconds, "frames": n_frames, "warnings": warnings,
-            "visuals": [s.name for s in shader_of]}
+            an = lib[t.song_id]
+            segs.append(Segment(t.uid, st, sid, an.artist, an.title, covers[t.song_id]))
+        return render_segments(segs, wins, seconds, out_path, vs, shaders, wav, audio, SR,
+                               progress=lambda m, f: say(m, 0.3 + 0.7 * f), cancel=cancel)

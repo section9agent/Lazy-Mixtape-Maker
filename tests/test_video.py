@@ -85,12 +85,8 @@ def test_video_modes(mode, lib, session, tmp_path):
     out = tmp_path / f"{mode}.mp4"
     res = render_video(session.plan, session.library, session.paths, out, vs, lib)
     assert out.exists() and not res["warnings"]
-    info = json.loads(subprocess.run(
-        ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(out)],
-        capture_output=True, text=True).stdout or "{}")
-    if info:
-        kinds = {s["codec_name"] for s in info["streams"]}
-        assert {"h264", "aac"} <= kinds
+    probe = subprocess.run([audio_io.ffmpeg(), "-hide_banner", "-i", str(out)], capture_output=True, text=True).stderr
+    assert "Video: h264" in probe and "Audio: aac" in probe
     if mode == "single":
         assert set(res["visuals"]) == {"Mine"}
 
@@ -152,3 +148,30 @@ def test_cover_art_is_used(lib, session, tmp_path):
     card = make_card("Artist", "Title", str(cover), 360, 400)
     px = np.array(card)
     assert ((px[..., 0] > 200) & (px[..., 1] < 60) & (px[..., 3] > 200)).sum() > 500
+
+
+@pytest.mark.parametrize("mode", ["random", "auto"])
+def test_visual_picks_use_the_whole_pool(mode, lib):
+    from lazy_mixtape_maker.video import pick_visuals
+    keys = [f"k{i}" for i in range(24)]
+    energies = [0.2, 0.5, 0.8] * 8
+    for seed in (1, 2, 3):
+        vs = VideoSettings(mode=mode, seed=seed)
+        picks = pick_visuals(keys, energies, vs, lib)
+        assert len(set(picks)) >= 7, picks                       # nearly all 8 built-ins get a turn
+        for i in range(3, len(picks)):
+            assert picks[i] not in picks[i - 3:i], picks         # no ping-pong / quick repeats
+    a = pick_visuals(keys, energies, VideoSettings(mode=mode, seed=1), lib)
+    assert a == pick_visuals(keys, energies, VideoSettings(mode=mode, seed=1), lib)   # reproducible
+    assert a != pick_visuals(keys, energies, VideoSettings(mode=mode, seed=2), lib)   # reshuffle differs
+
+
+def test_shader_export_roundtrip(lib):
+    from lazy_mixtape_maker.visuals import shader_to_json
+    sh = lib.add_from_text(_multipass_json())
+    text = shader_to_json(sh)
+    again = lib.add_from_text(text, "Trails copy")
+    assert [p["name"] for p in again.passes] == [p["name"] for p in sh.passes]
+    assert [p["inputs"] for p in again.passes] == [p["inputs"] for p in sh.passes]
+    single = lib.add_from_text(GOOD, "Plain")
+    assert lib.add_from_text(shader_to_json(single), "Plain2").source.strip() == GOOD.strip()

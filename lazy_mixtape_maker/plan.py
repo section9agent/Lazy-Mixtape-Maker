@@ -69,7 +69,7 @@ class Transition:
 class MixSettings:
     mode: str = "full"                 # "full" (whole songs) or "clips" (rave.dj style)
     clip_seconds: float = 30.0
-    overlap_bars: int = 8              # preferred blend length in master bars (full mode)
+    overlap_bars: int = 32             # longest blend allowed, in bars (it uses the whole outro/intro up to this)
     master_bpm: float | None = None    # a fixed mix tempo (implies tempo_mode "locked"); None = automatic
     tempo_mode: str = "drift"          # "drift" = tempo glides from song to song, "locked" = one tempo throughout
     max_tempo_stretch: float = 0.12    # most a song is sped up / slowed down to meet its neighbour
@@ -240,20 +240,47 @@ def _bars(an: SongAnalysis, sec) -> float:
     return (sec.end - sec.start) / an.bar_length
 
 
+def _quiet_bars(an: SongAnalysis, from_end: bool) -> float:
+    """Bars at the very end (or start) of the song that are clearly quieter than the body."""
+    be = an.bar_energy
+    if len(be) < 8:
+        return 0.0
+    thr = 0.62 * float(np.mean(be))
+    run = 0
+    for x in (reversed(be) if from_end else be):
+        if x < thr:
+            run += 1
+        else:
+            break
+    return float(run)
+
+
+def _edge_room(an: SongAnalysis, end: bool) -> float:
+    """Bars of usable outro (end=True) or intro (end=False): the labelled section, or the quiet
+    run of bars at that edge, whichever is longer."""
+    if not an.sections:
+        return 0.0
+    sec = an.sections[-1] if end else an.sections[0]
+    lab = _bars(an, sec) if sec.label == ("outro" if end else "intro") else 0.0
+    return max(lab, _quiet_bars(an, end))
+
+
 def _blend_bars(a_an: SongAnalysis, b_an: SongAnalysis, want: int) -> int:
-    """How many bars to blend: as many as the outgoing outro / incoming intro can carry."""
-    a_out = _bars(a_an, a_an.sections[-1]) if a_an.sections and a_an.sections[-1].label == "outro" else 0.0
-    b_in = _bars(b_an, b_an.sections[0]) if b_an.sections and b_an.sections[0].label == "intro" else 0.0
-    if a_out >= 2 and b_in >= 2:
+    """How many bars to blend. Uses the *whole* outro of the outgoing song and intro of the
+    incoming one when both have one (up to `want` bars), otherwise a medium blend."""
+    a_out, b_in = _edge_room(a_an, True), _edge_room(b_an, False)
+    if a_out >= 3 and b_in >= 3:
         room = min(a_out, b_in)
-    elif a_out >= 2 or b_in >= 2:
-        room = max(a_out, b_in)
+    elif a_out >= 3 or b_in >= 3:
+        room = min(max(a_out, b_in), 16.0)      # one side is already in full flow: keep it shorter
     else:
-        room = 2     # both songs are in full flow where they meet: a short, tidy blend
-    for bars in (16, 8, 4, 2, 1):
-        if bars <= want and bars <= room + 0.5:
-            return bars
-    return 1
+        room = 4.0
+    bars = int(min(float(want), room) + 0.5)
+    if bars >= 8:
+        bars = bars // 4 * 4                     # keep to whole phrases
+    elif bars >= 3:
+        bars = bars // 2 * 2
+    return max(1, bars)
 
 
 def _auto_transition(a: TrackPlan, b: TrackPlan, tr_matched: bool, plan: MixPlan, lib, rng: random.Random) -> tuple[str, int]:
@@ -286,28 +313,43 @@ def _auto_effects(a: TrackPlan, b: TrackPlan, tr: Transition, plan: MixPlan, rng
     if tr.type == "cut_fx":
         beat = 60.0 / max(1.0, a.bpm or plan.master_bpm)
         r = rng.random()
-        if r < 0.45:
+        if r < 0.30:
             d = 1.6
             a.effects.append(Effect("backspin", "end", -d, d, {}, True))
-        elif r < 0.85:
+        elif r < 0.58:
             a.effects.append(Effect("filter", "end", -4 * beat, 4 * beat,
                                     {"mode": "lowpass", "start_hz": 16000.0, "end_hz": 500.0}, True))
             a.effects.append(Effect("echo", "end", -2 * beat, 2 * beat, {"beats": 0.5, "feedback": 0.55}, True))
-        else:
+        elif r < 0.72:
             a.effects.append(Effect("reverb", "end", -2 * beat, 2 * beat, {"decay": 3.0, "level": 0.5}, True))
+        elif r < 0.86:
+            a.effects.append(Effect("stutter", "end", -2 * beat, 2 * beat,
+                                    {"beats": 0.5, "roll": "yes", "level": 1.0}, True))
+        else:
+            a.effects.append(Effect("cut", "end", -4 * beat, 4 * beat,
+                                    {"mode": "gate", "division": 0.5, "duty": 0.5, "floor": 0.0}, True))
         return
     if L <= 0:
         return
     r = rng.random()
-    if r < 0.30:
+    cut_len = min(L * 0.5, 8 * beat)
+    if r < 0.20:
         a.effects.append(Effect("filter", "end", -L * 0.5, L * 0.5,
                                 {"mode": "lowpass", "start_hz": 18000.0, "end_hz": 300.0}, True))
-    elif r < 0.50:
+    elif r < 0.34:
         a.effects.append(Effect("echo", "end", -4 * beat, 4 * beat, {"beats": 0.75, "feedback": 0.5}, True))
-    elif r < 0.65:
+    elif r < 0.44:
         b.effects.append(Effect("flange", "start", 0.0, L * 0.5, {"rate_hz": 0.25}, True))
-    elif r < 0.75:
+    elif r < 0.52:
         a.effects.append(Effect("delay", "end", -8 * beat, 8 * beat, {"beats": 0.75, "feedback": 0.45}, True))
+    elif r < 0.68 and cut_len >= 2 * beat:      # chop the outgoing song with the crossfader while it leaves
+        mode = rng.choice(["gate", "bass_kill", "highs_kill"])
+        a.effects.append(Effect("cut", "end", -cut_len, cut_len,
+                                {"mode": mode, "division": rng.choice([0.5, 0.5, 0.25, 1.0]),
+                                 "duty": 0.5, "floor": 0.0}, True))
+    elif r < 0.76 and L >= 4 * beat:
+        a.effects.append(Effect("stutter", "end", -2 * beat, 2 * beat,
+                                {"beats": 0.5, "roll": "yes", "level": 1.0}, True))
 
 
 def _plan_tempos(plan: MixPlan, songs: list[SongAnalysis]) -> list[bool]:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import queue
+import threading
 import traceback
 
 from PySide6.QtCore import QThread, Signal
@@ -86,3 +87,60 @@ class ThumbWorker(QThread):
         finally:
             if renderer:
                 renderer.release()
+
+
+class FrameWorker(QThread):
+    """Live preview: owns an OpenGL renderer on its own thread and draws only the *latest*
+    requested picture, so a heavy shader slows the preview down instead of freezing the window.
+
+    submit(fn, tag): fn(renderer) -> RGB bytes, bottom row first (as GLRenderer.composite returns)."""
+    frame = Signal(QImage, object)
+    unavailable = Signal(str)
+    failed = Signal(str, object)
+
+    def __init__(self, width: int = 480, height: int = 270, parent=None):
+        super().__init__(parent)
+        self.size = (width, height)
+        self._job = None
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._stop = False
+
+    def submit(self, fn, tag=None):
+        with self._lock:
+            self._job = (fn, tag)
+        self._wake.set()
+
+    def stop(self):
+        self._stop = True
+        self._wake.set()
+
+    def run(self):
+        try:
+            from ..video import GLRenderer
+            r = GLRenderer(*self.size)
+        except Exception as e:  # noqa: BLE001
+            self.unavailable.emit(str(e))
+            return
+        w, h = self.size
+        try:
+            while not self._stop:
+                self._wake.wait()
+                self._wake.clear()
+                if self._stop:
+                    break
+                with self._lock:
+                    job, self._job = self._job, None
+                if job is None:
+                    continue
+                fn, tag = job
+                try:
+                    raw = fn(r)
+                    import numpy as np
+                    arr = np.ascontiguousarray(np.frombuffer(raw, np.uint8).reshape(h, w, 3)[::-1])
+                    img = QImage(arr.data, w, h, w * 3, QImage.Format.Format_RGB888).copy()
+                    self.frame.emit(img, tag)
+                except Exception as e:  # noqa: BLE001
+                    self.failed.emit(str(e), tag)
+        finally:
+            r.release()

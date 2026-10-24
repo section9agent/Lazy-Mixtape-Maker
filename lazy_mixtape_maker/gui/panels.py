@@ -388,7 +388,7 @@ class EffectsTab(_Tab):
             for name, default in fxmod.EFFECT_TYPES[e.type]["defaults"].items():
                 if isinstance(default, str):
                     w = QComboBox()
-                    w.addItems(["lowpass", "highpass"] if name == "mode" else [default])
+                    w.addItems(fxmod.CHOICES.get(e.type, {}).get(name, [default]))
                     w.currentTextChanged.connect(lambda _v, n=name: self._param_changed(n))
                 else:
                     w = _spin(0, 30000, 0.05 if default < 10 else 50.0, 2 if default < 10 else 0)
@@ -413,7 +413,7 @@ class EffectsTab(_Tab):
         i = self.idx()
         kind = self.kind.currentData()
         beat = 60.0 / (self.state.selected_track().bpm or self.state.plan.master_bpm)
-        dur = 8 * beat if kind != "backspin" else 1.6
+        dur = {"backspin": 1.6, "cut": 4 * beat, "stutter": 2 * beat}.get(kind, 8 * beat)
         holder = {}
 
         def fn(p, lib):

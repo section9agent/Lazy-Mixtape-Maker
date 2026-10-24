@@ -1,4 +1,4 @@
-"""DJ effects: echo, delay, reverb, filter, flange, backspin.
+"""DJ effects: echo, delay, reverb, filter, flange, backspin, cut (crossfader chop), stutter (beat repeat).
 
 Every effect is described by a small dict-like spec (see plan.Effect) so the AI
 mixer and the editor use exactly the same thing. Times are relative to the
@@ -24,6 +24,16 @@ EFFECT_TYPES = {
     "flange": {"label": "Flanger", "send": False,
                "defaults": {"rate_hz": 0.35, "depth_ms": 3.5, "base_ms": 0.6}},
     "backspin": {"label": "Backspin", "send": False, "defaults": {"speed": 2.2}},
+    "cut": {"label": "Cut (crossfader chop)", "send": False,
+            "defaults": {"mode": "gate", "division": 0.5, "duty": 0.5, "floor": 0.0}},
+    "stutter": {"label": "Stutter (beat repeat)", "send": False,
+                "defaults": {"beats": 0.5, "roll": "yes", "level": 1.0}},
+}
+# the fixed choices of text parameters (the editor shows them as drop-downs)
+CHOICES = {
+    "filter": {"mode": ["lowpass", "highpass"]},
+    "cut": {"mode": ["gate", "bass_kill", "highs_kill"]},
+    "stutter": {"roll": ["yes", "no"]},
 }
 
 
@@ -154,6 +164,57 @@ def fx_backspin(buf, a, n_region, sr, speed=2.2):
     return buf
 
 
+def _smooth_env(env: np.ndarray, sr: int) -> np.ndarray:
+    k = max(2, int(0.002 * sr))                      # ~2 ms edges: a fast fader, no clicks
+    ker = np.ones(k, dtype=np.float32) / k
+    return np.convolve(env, ker, mode="same").astype(np.float32)
+
+
+def fx_cut(x, sr, bpm, p):
+    """The crossfader being chopped in time with the beat. 'gate' closes the fader completely;
+    'bass_kill' / 'highs_kill' stay open but EQ the lows / highs away on every closed slice."""
+    n = x.shape[1]
+    slice_len = max(8.0, float(p["division"]) * 60.0 / bpm * sr)
+    phase = (np.arange(n) % slice_len) / slice_len
+    open_ = (phase < float(np.clip(p["duty"], 0.05, 0.95))).astype(np.float32)
+    env = _smooth_env(open_, sr)
+    floor = float(np.clip(p["floor"], 0.0, 1.0))
+    mode = p.get("mode", "gate")
+    if mode == "gate":
+        return x * (floor + (1.0 - floor) * env)
+    if mode == "bass_kill":
+        other = x - _lowpass(x, 250.0, sr)           # closed: everything below ~250 Hz is gone
+    else:
+        other = _lowpass(x, 400.0, sr)               # closed: everything above ~400 Hz is gone
+    return x * env + other * (1.0 - env)
+
+
+def fx_stutter(x, sr, bpm, p):
+    """Beat repeat: grabs the first slice of the region and loops it; with 'roll' the slice
+    halves every two repeats so the loop speeds up into a roll."""
+    n = x.shape[1]
+    D = max(64, int(round(float(p["beats"]) * 60.0 / bpm * sr)))
+    D = min(D, n)
+    fade = max(2, int(0.003 * sr))
+    out = np.zeros_like(x)
+    pos, size, rep = 0, D, 0
+    roll = p.get("roll", "yes") == "yes"
+    while pos < n:
+        chunk = x[:, :size].copy()
+        m = min(fade, size // 2)
+        if m > 0:
+            chunk[:, :m] *= np.linspace(0, 1, m, dtype=np.float32)
+            chunk[:, -m:] *= np.linspace(1, 0, m, dtype=np.float32)
+        end = min(n, pos + size)
+        out[:, pos:end] = chunk[:, : end - pos]
+        pos += size
+        rep += 1
+        if roll and rep % 2 == 0 and size > D // 8 and size // 2 >= 64:
+            size //= 2
+    lvl = float(np.clip(p["level"], 0.0, 2.0))
+    return out * lvl
+
+
 # ---------------------------------------------------------------------- driver
 def apply_effect(buf: np.ndarray, a: int, length: int, spec: dict, sr: int, bpm: float) -> np.ndarray:
     """Apply one effect to `buf` (2, N) in place over [a, a+length). `buf`
@@ -176,7 +237,7 @@ def apply_effect(buf: np.ndarray, a: int, length: int, spec: dict, sr: int, bpm:
         end = min(N, a + wet.shape[1])
         buf[:, a:end] += wet[:, : end - a]
         return buf
-    proc = {"filter": fx_filter, "flange": fx_flange}[kind](seg, sr, bpm, params)
+    proc = {"filter": fx_filter, "flange": fx_flange, "cut": fx_cut, "stutter": fx_stutter}[kind](seg, sr, bpm, params)
     ramp = min(int(0.02 * sr), (b - a) // 2)
     w = np.ones(b - a, dtype=np.float32)
     if ramp > 0:

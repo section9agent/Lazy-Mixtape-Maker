@@ -113,12 +113,68 @@ def cmd_video(args):
     vs.width, vs.height, vs.fps = args.width, args.height, args.fps
     if args.seed is not None:
         vs.seed = args.seed
+    if args.no_overlay:
+        vs.show_overlay = False
     cb = _progress()
     res = render_video(s.plan, s.library, s.paths, args.output, vs, shaders, progress=cb)
     _done()
     print(f"Video written: {res['video']}  ({_fmt(res['seconds'])}, visuals: {', '.join(res['visuals'])})")
     for w in res["warnings"]:
         print("Note:", w)
+
+
+def cmd_studio(args):
+    """Make a video for an audio file you already have (a mixtape made elsewhere)."""
+    from . import studio
+    from .visuals import ShaderLibrary
+    shaders = ShaderLibrary()
+    if args.project:
+        p = studio.load_project(args.project, shaders, args.library or [])
+        if not Path(p.audio).is_file():
+            sys.exit("Cannot find the project's audio file. Use --library <folder> to point at it.")
+    else:
+        if not args.audio:
+            sys.exit("Give an audio file or --project.")
+        p = studio.new_project(args.audio)
+    if args.cue:
+        p.set_markers(studio.import_cue_file(args.cue))
+        print(f"{len(p.markers)} song markers from {Path(args.cue).name}")
+    for path in args.add_shader or []:
+        sh = shaders.add_from_file(path)
+        print(f"Added visual: {sh.name}")
+        if args.mode is None and not args.visual:
+            args.visual = sh.name
+    vs = p.video
+    if args.mode:
+        vs.mode = args.mode
+    if args.visual:
+        match = [x for x in shaders.all() if args.visual.lower() in (x.id.lower(), x.name.lower())]
+        if not match:
+            sys.exit("No visual called '%s'. Available: %s" % (args.visual, ", ".join(x.name for x in shaders.all())))
+        vs.single_shader, vs.mode = match[0].id, "single"
+    if args.width: vs.width = args.width
+    if args.height: vs.height = args.height
+    if args.fps: vs.fps = args.fps
+    if args.blend is not None: vs.blend = args.blend
+    if args.seed is not None: vs.seed = args.seed
+    if args.no_overlay: vs.show_overlay = False
+    if args.save_project:
+        studio.save_project(p, args.save_project, shaders)
+        print(f"Project saved: {args.save_project}")
+    if not args.output:
+        return
+    res = studio.render_studio(p, args.output, shaders, progress=_progress())
+    _done()
+    print(f"Video written: {res['video']}  ({_fmt(res['seconds'])}, visuals: {', '.join(res['visuals'])})")
+    for w in res["warnings"]:
+        print("Note:", w)
+
+
+def cmd_config(args):
+    from . import prefs
+    if args.overlay:
+        prefs.set("show_overlay", args.overlay == "on")
+    print("Cover art / artist / title on videos:", "on" if prefs.overlay_enabled() else "off")
 
 
 def cmd_edit(args):
@@ -176,7 +232,7 @@ def build_parser():
     m.add_argument("--mode", choices=["full", "clips"], default="full",
                    help="full = use whole songs (default); clips = short rave.dj-style highlights")
     m.add_argument("--clip-seconds", type=float, default=30.0)
-    m.add_argument("--overlap-bars", type=int, default=8, help="preferred blend length in bars")
+    m.add_argument("--overlap-bars", type=int, default=32, help="longest blend in bars (whole outro/intro is used up to this)")
     m.add_argument("--bpm", type=float, help="force one fixed tempo for the whole mix")
     m.add_argument("--tempo-mode", choices=["drift", "locked"], default="drift",
                    help="drift = tempo glides from song to song (default); locked = one tempo throughout")
@@ -203,7 +259,28 @@ def build_parser():
     v.add_argument("--add-shader", action="append", help="import a Shadertoy .glsl/.json file first (kept for later)")
     v.add_argument("--width", type=int, default=1280); v.add_argument("--height", type=int, default=720)
     v.add_argument("--fps", type=int, default=30); v.add_argument("--seed", type=int)
+    v.add_argument("--no-overlay", action="store_true", help="leave out the cover / artist / title card")
     v.set_defaults(fn=cmd_video)
+
+    st = sub.add_parser("studio", help="make a video for an existing mixtape audio file (+ optional cue sheet)")
+    st.add_argument("audio", nargs="?", help="mp3 / wav / flac / m4a")
+    st.add_argument("-o", "--output", help="output .mp4")
+    st.add_argument("--cue", help=".cue sheet or text track list: marks where the songs change")
+    st.add_argument("--project", help="open a saved .lmv project instead of an audio file")
+    st.add_argument("--save-project", help="save the project (.lmv) so it can be edited in the app")
+    st.add_argument("--library", action="append", help="folder to look for the project's audio in")
+    st.add_argument("--mode", choices=["auto", "random", "per_song", "single"])
+    st.add_argument("--visual", help="one visual (by name) for the whole video")
+    st.add_argument("--add-shader", action="append")
+    st.add_argument("--blend", type=float, help="visual cross-fade length in seconds (default 6)")
+    st.add_argument("--width", type=int); st.add_argument("--height", type=int)
+    st.add_argument("--fps", type=int); st.add_argument("--seed", type=int)
+    st.add_argument("--no-overlay", action="store_true", help="leave out the cover / artist / title card")
+    st.set_defaults(fn=cmd_studio)
+
+    cf = sub.add_parser("config", help="app-wide options")
+    cf.add_argument("--overlay", choices=["on", "off"], help="cover art / artist / title on every video (default on)")
+    cf.set_defaults(fn=cmd_config)
 
     sh = sub.add_parser("show", help="print a session's tracklist, transitions and effects")
     sh.add_argument("session")

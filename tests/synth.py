@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
+from lazy_mixtape_maker import audio_io
+
 SR = 44100
 SEMI = lambda f0, n: f0 * 2 ** (n / 12)
 C0 = 16.3516
@@ -102,7 +104,7 @@ def make_song(path, bpm=120.0, root=0, minor=True, lead_in=0.0, structure=None, 
     path = Path(path)
     tmp = path.with_suffix(".tmp.wav")
     sf.write(str(tmp), stereo.T, SR, subtype="PCM_16")
-    cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(tmp)]
+    cmd = [audio_io.ffmpeg(), "-v", "error", "-y", "-i", str(tmp)]
     for k, v in (tags or {}).items():
         cmd += ["-metadata", f"{k}={v}"]
     if fmt == "mp3":

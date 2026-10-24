@@ -30,11 +30,11 @@ Actions tab, or push a `v*` tag).
 2. **Generate mix** (Ctrl+G) to choose how it's built, or just press **Play**. The first mix is made automatically.
    * *Whole songs* (default) uses as much of every song as possible. *Short clips* gives rave.dj-style highlights of ~30 s each (length adjustable).
    * *Tempo*: let it glide from song to song (best sound; each song only speeds up or slows down around the blend), or hold one tempo for the whole mix.
-   * The AI picks the order, how long each blend is (based on each song's intro/outro), bass-swap or crossfade, small key shifts (up to 2 semitones) and effects. Each of these can be switched off.
+   * The AI picks the order, how long each blend is (it uses each song's whole outro and the next song's whole intro, up to *Longest blend*, default 32 bars), bass-swap or crossfade, small key shifts (up to 2 semitones) and effects. Each of these can be switched off.
 3. **Edit** anything:
    * *Order*: drag songs in the list, or ↑ ↓. *Remove* deletes a song and the neighbours are re-blended.
    * *Timing*: drag a song left/right on the timeline to change how much it overlaps the previous one; drag its right edge to end it earlier; or use the **Song** and **Transition** tabs (start/end points, blend length and style).
-   * *Effects*: **Effects** tab (echo, delay, reverb, filter sweep, flanger, backspin). Add at the start or end of a song, then drag the coloured block to retime it or edit its length and settings. The AI uses the same effects, and its choices are editable too.
+   * *Effects*: **Effects** tab (echo, delay, reverb, filter sweep, flanger, backspin, **cut**: the crossfader chopping the sound or EQ-killing bass/highs in time, and **stutter**: a rolling beat repeat). Add at the start or end of a song, then drag the coloured block to retime it or edit its length and settings. The AI uses the same effects, and its choices are editable too.
    * *Visuals*: **Visual** tab picks a visual per song.
    * *Preview this transition* (Ctrl+T) plays just the blend. Undo/redo with Ctrl+Z / Ctrl+Shift+Z.
 4. **Save session** (Ctrl+S) writes a `.lmm` file. Reopen it any time. To share: give a friend the `.lmm` file and your songs; they open it, point at their folder if asked (songs are found by content, so renamed or moved files are fine), and get the same mix to play or adjust. Imported Shadertoy visuals travel inside the session.
@@ -43,6 +43,20 @@ Actions tab, or push a `v*` tag).
    *the app chooses* (calm/medium/intense visuals to suit each song), *random visual for each song*,
    *I choose per song*, or *one visual for the whole video*. Visuals cross-fade exactly like the audio, and
    the current song's cover art, artist and title sit in the lower-left corner.
+
+7. **Shader library** tab: every visual with a live animated preview, rename, “suits calm / medium / intense songs”, code viewer, import, export and remove.
+   Per-song choices in *random* and *the app chooses* modes draw from the whole library (no immediate repeats, every visual gets a turn); **Pick different random visuals** reshuffles.
+
+### Visualization Studio (videos for a mixtape you already made)
+
+*Tools → Visualization Studio* (Ctrl+Shift+V). Open any mp3 / wav / flac / m4a, then:
+
+* **Mark where the songs change**: import a `.cue` sheet or a plain text track list (`0:00 Artist - Title` per line, including the list this app writes), or add markers by hand (double-click the waveform, **M**, right-click). Drag markers to move them; edit time, artist, title, cover image and visual per song.
+* **Choose the visuals**: one for the whole video, one per song (the *Visual* box), or let the app / random mix them per song. Visuals blend at each marker (*Visual blend* sets how long).
+* **Preview** live while the music plays, then **Export video** (MP4, your original audio as the soundtrack). Undo/redo, save/open `.lmv` projects (imported visuals travel inside).
+* From the command line: `lmm studio mixtape.mp3 --cue mix.cue -o mix.mp4 --mode random` (`--visual NAME`, `--blend 6`, `--no-overlay`, `--save-project x.lmv`).
+
+**Cover art, artist and title** (lower left) is on by default everywhere. Turn it off for every video with *Settings → Show cover art, artist and title* (or `lmm config --overlay off`), or per video with its own checkbox.
 
 ### Adding visuals from Shadertoy
 
