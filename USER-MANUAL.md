@@ -32,7 +32,7 @@ Works with **mp3, wav, flac and m4a** files.
 ## 1. Quick start
 
 1. Open the app.
-2. Drag a folder of songs onto the window (or click **Add folder**). Each song is analysed once; this takes a few seconds per song.
+2. Drag a folder of songs onto the window (or click **Add folder**). Each song is analysed once; this takes a few seconds per song. When you add a **folder**, the Generate mix options appear first so the first mix is made the way you want.
 3. The first mix is made for you automatically. Press **Play**.
 4. Don't like something? Drag songs around, change blends, add effects (see [Editing](#6-editing-the-mix)).
 5. **File → Save session** to keep your work, **Export audio** for the finished mix, **Export video** for a visual version.
@@ -43,7 +43,7 @@ Works with **mp3, wav, flac and m4a** files.
 
 | Area | What it does |
 |---|---|
-| **Toolbar** (top) | Add songs, Add folder, Generate mix, Play, Stop, Export audio, Export video, Visualization Studio. |
+| **Toolbar** (top) | Add songs, Add folder, Generate mix, Play, Stop, Export audio, Export video, Export mix + video, Visualization Studio. The status bar shows the number of songs and the total mix length (HH:MM:SS). |
 | **Songs in the mix** (top left) | The songs in play order, with key, tempo and start time. Drag to reorder. |
 | **Inspector** (top right) | Tabs for the selected song: **Song**, **Transition**, **Effects**, **Visual**. |
 | **Bottom tabs** | **Timeline**, **Cue sheet**, **Visuals** (video settings), **Shader library**. |
@@ -57,7 +57,7 @@ Menus: **File**, **Edit**, **Mix**, **Tools** (Visualization Studio), **Settings
 
 - Drag music files or folders onto the window, or use **Add songs** / **Add folder** on the toolbar.
 - Subfolders are included when you add a folder.
-- Each song is analysed for tempo (BPM), key, and its parts (intro, verse, chorus, bridge, outro). The result is remembered, so adding the same song again is instant.
+- Each song is analysed for tempo (BPM), key, and its parts (intro, verse, chorus, bridge, outro). The result is saved in a small file next to the song (`Song.mp3.lmmanalysis`) and in the app's cache, so the same song is never analysed twice, even on another computer if you copy the file along. If the song changes, it is analysed again. A read-only music folder is fine.
 - The first batch of songs is mixed automatically. Songs added later are placed at the end of the mix; drag them where you want them.
 - Songs that can't be read are listed in a message and skipped.
 
@@ -103,7 +103,7 @@ Everything you change by hand is remembered, and the AI will not overwrite it wh
 
 Songs sit in two alternating rows, like two decks. Shaded areas between songs are the blends. Each song shows:
 
-- a **near-black waveform** over its colour,
+- a **dark waveform** (80% black) over its colour on every song,
 - its **parts** (intro, verse, chorus…) in a coloured strip along the bottom,
 - its **effects** as small coloured blocks underneath.
 
@@ -183,6 +183,8 @@ Along with the audio, a **.cue** file and a plain-text **track list** are saved 
 
 ## 10. Making a video
 
+**Export mix + video** (Ctrl+Alt+E) saves the audio (with its cue sheet) and the MP4 together. The mix is rendered only once.
+
 **Export video** (Ctrl+Shift+E) makes an **MP4** (H.264 video + AAC audio) of your mix. Visuals blend into each other exactly as the music does, and the current song's **cover art, artist and title** appear in the lower-left corner.
 
 Settings are in the **Visuals** tab at the bottom:
@@ -212,7 +214,8 @@ Open the **Shader library** tab (bottom of the main window, or inside the Visual
 - **Live preview**: the selected visual animates on the right. Use **Pause** and **Restart**.
 - **Name**: rename your own visuals (built-ins can't be renamed).
 - **Suits**: calm, medium or intense. "Let the app choose" uses this.
-- **View code…**: see the shader's code (every pass of a multi-pass shader).
+- **View/Edit Code**: see and change a saved shader: the code of every pass and what feeds each iChannel. **Save changes** checks that it compiles; if it doesn't, your old version is kept. Built-in visuals are view-only.
+- **Back up all…** saves every visual you added (with their textures and clips) into one `.lmmshaders` file. **Import backup…** adds them back (ones you already have are skipped).
 - **Export…**: save a visual as a file to back it up or share it.
 - **Remove**: delete one of your own visuals. Built-ins can't be removed.
 - **Use for the whole video**: sets the video to one visual.
@@ -231,7 +234,7 @@ Shadertoy has no download button, so there are three ways in:
 
 **From a link.** Paste the shader's web address (like `https://www.shadertoy.com/view/XXXXXX`). It's downloaded complete, with all of its passes. **No account or API key is needed.** An API key box is there only as a fallback. This needs internet just for the download. If a shader's author has blocked outside access, use the paste or multi-pass tabs instead.
 
-Notes: inputs that need the internet, a webcam, video or 3D textures can't work offline and are replaced with noise. The app tells you when that happens.
+Textures and video clips: a channel can be set to **Texture image…** or **Video clip…**, which opens a file browser. For shaders you download or import, the app finds the textures and clips the code uses and shows exactly those on the right channel; if a file isn't on your computer yet, it says so and the **…** button next to the channel lets you pick it. Webcam, cube-map and 3D-texture inputs can't work offline and are replaced with noise. A shader's own *sound* tab is ignored: the video always uses your mix's audio. A shader's music input can be on any channel (iChannel0–3) and reacts to the mix.
 
 ---
 
@@ -288,7 +291,7 @@ Very long files (over about 40 minutes) work too; the music-reactive part of the
 | Ctrl+I / Ctrl+Shift+I | Add songs / Add folder |
 | Ctrl+G | Generate mix |
 | Space | Play / pause |
-| Ctrl+E / Ctrl+Shift+E | Export audio / Export video |
+| Ctrl+E / Ctrl+Shift+E / Ctrl+Alt+E | Export audio / Export video / Export both |
 | Ctrl+Z / Ctrl+Shift+Z | Undo / Redo |
 | Delete | Remove the selected song |
 | Ctrl+Shift+V | Visualization Studio |
@@ -342,7 +345,9 @@ Useful options: `--overlap-bars` (longest blend), `--tempo-mode`, `--no-effects`
 
 **Video export says OpenGL isn't available.** Video needs OpenGL 3.3. Update your graphics drivers (on a virtual machine or remote desktop, it may not be available). Audio features work without it.
 
-**A visual looks different from Shadertoy.** Some shaders use inputs that can't work offline (webcam, video, some textures). They are replaced with noise, and the app shows a warning on that visual.
+**A visual looks different from Shadertoy.** Some shaders use inputs that can't work offline (webcam, cube maps, 3D textures). They are replaced with noise, and the app shows a warning on that visual. Shaders that use a texture or video need that file: open **View/Edit Code** and pick it.
+
+**A video doesn't react to the music.** Open the shader in **View/Edit Code** and check that one iChannel is set to **Music (audio)**; shaders pasted as plain code use the music on iChannel0.
 
 **No sound from Play.** The preview needs an audio output device. Exporting still works without one.
 

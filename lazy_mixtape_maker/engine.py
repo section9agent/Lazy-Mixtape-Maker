@@ -35,9 +35,10 @@ def new_session(files, settings: MixSettings | None = None, progress=None, name=
     return Session(library=lib, plan=plan, paths=paths, name=name), errors
 
 
-def export_session(session: Session, out_path, progress=None, write_cue: bool = True) -> dict:
+def export_session(session: Session, out_path, progress=None, write_cue: bool = True, audio=None) -> dict:
     out_path = Path(out_path)
-    audio = render_mix(session.plan, session.library, session.paths, progress=progress)
+    if audio is None:
+        audio = render_mix(session.plan, session.library, session.paths, progress=progress)
     meta = {"title": session.name, "artist": "Lazy Mixtape Maker"}
     audio_io.write_audio(out_path, audio, metadata=meta)
     result = {"audio": str(out_path), "seconds": audio.shape[1] / audio_io.SR}
@@ -49,6 +50,24 @@ def export_session(session: Session, out_path, progress=None, write_cue: bool = 
         result.update(cue=str(cue_path), tracklist=str(txt_path))
     session.export = {"format": out_path.suffix.lower().lstrip(".")}
     return result
+
+
+def export_both(session: Session, audio_path, video_path, video_settings=None, shaders=None, progress=None,
+                cancel=None, write_cue: bool = True) -> dict:
+    """Render the mix once, save it as audio (plus cue sheet) and use the same render for the video."""
+    from .video import render_video
+
+    say = progress or (lambda msg, frac: None)
+    audio = render_mix(session.plan, session.library, session.paths, progress=lambda m, f: say(m, 0.35 * f))
+    if cancel and cancel():
+        from .video import Cancelled
+        raise Cancelled("Cancelled")
+    res = export_session(session, audio_path, write_cue=write_cue, audio=audio)
+    say("saved the audio", 0.38)
+    vid = render_video(session.plan, session.library, session.paths, video_path, video_settings, shaders,
+                       audio=audio, progress=lambda m, f: say(m, 0.38 + 0.62 * f), cancel=cancel)
+    res.update(video=vid["video"], warnings=vid.get("warnings", []))
+    return res
 
 
 def transition_preview_plan(plan, index: int, before: float = 14.0, after: float = 14.0):

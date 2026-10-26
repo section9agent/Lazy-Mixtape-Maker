@@ -179,6 +179,7 @@ class TimelineWidget(QWidget):
                 p.drawText(band.adjusted(4, 0, -2, 0), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                            p.fontMetrics().elidedText(sec.label, Qt.TextElideMode.ElideRight, int(band.width() - 6)))
         p.restore()
+        p.setBrush(Qt.BrushStyle.NoBrush)     # the previous track's effect boxes leave a brush behind; it filled over the waveform
         p.setPen(QPen(QColor("#ffffff") if sel else QColor(0, 0, 0, 90), 2 if sel else 1))
         p.drawPath(path)
         # labels (white with a dark shadow so they read over the waveform)
@@ -250,7 +251,7 @@ class TimelineWidget(QWidget):
         for x, a in zip(xs[::-1], amp[::-1]):
             poly.lineTo(x, mid + a * half)
         poly.closeSubpath()
-        p.fillPath(poly, QColor(8, 8, 12, 235))
+        p.fillPath(poly, QColor(8, 8, 12, 204))
 
     # --------------------------------------------------------------- interaction
     def _hit(self, pos):

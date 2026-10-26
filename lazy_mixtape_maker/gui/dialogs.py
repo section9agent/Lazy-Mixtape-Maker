@@ -1,13 +1,15 @@
 """Dialogs: generate-mix options, add a Shadertoy visual."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
                                QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit, QPushButton, QSpinBox,
                                QTabWidget, QVBoxLayout, QWidget)
 
 from ..plan import MixSettings
-from ..visuals import ShaderError, ShaderLibrary
+from ..visuals import (Shader, ShaderError, ShaderLibrary, add_media, build_passes, kind_media, media_path)
 
 
 class GenerateDialog(QDialog):
@@ -85,7 +87,84 @@ class GenerateDialog(QDialog):
 
 
 CHANNEL_LABELS = [("noise", "Nothing / noise texture"), ("audio", "Music (audio)"), ("keyboard", "Keyboard"),
-                  ("buffer:A", "Buffer A"), ("buffer:B", "Buffer B"), ("buffer:C", "Buffer C"), ("buffer:D", "Buffer D")]
+                  ("buffer:A", "Buffer A"), ("buffer:B", "Buffer B"), ("buffer:C", "Buffer C"), ("buffer:D", "Buffer D"),
+                  ("pick:texture", "Texture image…"), ("pick:video", "Video clip…")]
+IMAGE_FILTER = "Images (*.png *.jpg *.jpeg *.bmp *.gif *.webp)"
+VIDEO_FILTER = "Video clips (*.mp4 *.webm *.mov *.mkv *.avi *.ogv)"
+
+
+class ChannelCombo(QWidget):
+    """What feeds one iChannel: noise, the music, a buffer, or a texture / video clip chosen with a browser.
+    A shader that already refers to a texture or clip shows exactly that one (with a button to point it at a
+    file on this computer); the generic "Texture image…" entries open the file browser."""
+
+    def __init__(self):
+        super().__init__()
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.combo = QComboBox()
+        for k, v in CHANNEL_LABELS:
+            self.combo.addItem(v, k)
+        self.browse = QPushButton("…")
+        self.browse.setFixedWidth(30)
+        self.browse.setToolTip("Choose the texture / video file")
+        self.browse.setVisible(False)
+        lay.addWidget(self.combo, 1)
+        lay.addWidget(self.browse)
+        self._last = 0
+        self.combo.activated.connect(self._picked)
+        self.browse.clicked.connect(self._rebrowse)
+
+    def _label(self, kind: str) -> str:
+        t, n = kind_media(kind)
+        name = n.split("_", 1)[-1] if "_" in n and len(n.split("_", 1)[0]) == 8 else n
+        return f"{'Video' if t == 'video' else 'Texture'}: {name}" + ("" if media_path(n) else "  (file needed)")
+
+    def set_kind(self, kind: str):
+        i = self.combo.findData(kind)
+        if i < 0 and kind_media(kind):
+            self.combo.insertItem(self.combo.count() - 2, self._label(kind), kind)
+            i = self.combo.findData(kind)
+        self.combo.setCurrentIndex(max(0, i))
+        self._last = self.combo.currentIndex()
+        self.browse.setVisible(bool(kind_media(self.kind())))
+
+    def kind(self) -> str:
+        k = self.combo.currentData()
+        return "noise" if str(k).startswith("pick:") else k
+
+    def _choose(self, which: str) -> str | None:
+        flt = VIDEO_FILTER if which == "video" else IMAGE_FILTER
+        d = str(QSettings().value("last_media_dir", ""))
+        path, _ = QFileDialog.getOpenFileName(self, f"Choose a {which}", d, flt)
+        if not path:
+            return None
+        QSettings().setValue("last_media_dir", str(Path(path).parent))
+        try:
+            return f"{which}:{add_media(path)}"
+        except OSError:
+            return None
+
+    def _picked(self, i):
+        k = self.combo.itemData(i)
+        if isinstance(k, str) and k.startswith("pick:"):
+            new = self._choose(k.split(":")[1])
+            if new is None:
+                self.combo.setCurrentIndex(self._last)
+                return
+            self.set_kind(new)
+        else:
+            self._last = i
+            self.browse.setVisible(bool(kind_media(self.kind())))
+
+    def _rebrowse(self):
+        t, n = kind_media(self.kind())
+        new = self._choose(t)
+        if new:
+            i = self.combo.currentIndex()
+            self.combo.setItemText(i, self._label(new))
+            self.combo.setItemData(i, new)
+            self._last = i
 
 
 class _PassEditor(QWidget):
@@ -99,15 +178,13 @@ class _PassEditor(QWidget):
         self.code.setPlaceholderText(placeholder or f"Paste the {title} code here (leave empty if the shader has no {title} tab)")
         self.code.setStyleSheet("font-family: monospace")
         lay.addWidget(self.code, 1)
-        self.combos: list[QComboBox] = []
+        self.combos: list[ChannelCombo] = []
         if has_inputs:
             row = QHBoxLayout()
             for ch in range(4):
                 col = QVBoxLayout()
                 col.addWidget(QLabel(f"iChannel{ch}"))
-                c = QComboBox()
-                for k, v in CHANNEL_LABELS:
-                    c.addItem(v, k)
+                c = ChannelCombo()
                 self.combos.append(c)
                 col.addWidget(c)
                 row.addLayout(col)
@@ -117,7 +194,14 @@ class _PassEditor(QWidget):
         return self.code.toPlainText()
 
     def inputs(self) -> dict:
-        return {ch: c.currentData() for ch, c in enumerate(self.combos) if c.currentData() != "noise"}
+        return {ch: c.kind() for ch, c in enumerate(self.combos) if c.kind() != "noise"}
+
+    def set_text(self, text: str):
+        self.code.setPlainText(text)
+
+    def set_inputs(self, inputs: dict):
+        for ch, c in enumerate(self.combos):
+            c.set_kind((inputs or {}).get(str(ch), "noise"))
 
 
 class AddVisualDialog(QDialog):
@@ -134,8 +218,9 @@ class AddVisualDialog(QDialog):
         info = QLabel(
             "Find a shader on <b>shadertoy.com</b>. Simple shaders: paste the code. Shaders with <i>Buffer</i> tabs: use "
             "<b>Multi-pass</b> and paste each tab. Or paste its <b>link</b> and it's downloaded for you. "
-            "Visuals are saved on this computer, so they work offline from then on. Inputs that need the internet, a "
-            "webcam or video are replaced by noise.")
+            "Visuals are saved on this computer, so they work offline from then on. Textures and video clips can be picked "
+            "from your computer (or are downloaded with a link); webcam, cube-map and volume inputs are replaced by noise. "
+            "Shaders that make their own sound are fine - that sound is muted.")
         info.setWordWrap(True); info.setTextFormat(Qt.TextFormat.RichText)
         lay.addWidget(info)
         self.name = QLineEdit(); self.name.setPlaceholderText("Name (optional)")
@@ -204,5 +289,88 @@ class AddVisualDialog(QDialog):
             self.accept()
         except (ShaderError, ValueError, OSError, KeyError) as e:
             self.msg.setText(f"Couldn't use that shader:\n{e}")
+        finally:
+            self.unsetCursor()
+
+
+
+class EditShaderDialog(QDialog):
+    """View and edit a saved shader: the code of every pass, and what feeds each iChannel (including the
+    texture / video clip a shader uses). Saving checks that it compiles."""
+
+    def __init__(self, shaders: ShaderLibrary, sh: Shader, parent=None):
+        super().__init__(parent)
+        self.shaders, self.sh = shaders, sh
+        self.saved = False
+        self.setWindowTitle(f"{'View' if sh.builtin else 'View / Edit'} code — {sh.name}")
+        self.resize(780, 640)
+        lay = QVBoxLayout(self)
+        self.common = _PassEditor("Common", False)
+        self.buf = {L: _PassEditor(f"Buffer {L}", True) for L in "ABCD"}
+        self.image = _PassEditor("Image", True)
+        multi = bool(sh.passes)
+        self.tabs = QTabWidget()
+        lay.addWidget(self.tabs, 1)
+        if multi:
+            self.tabs.addTab(self.common, "Common")
+            for L in "ABCD":
+                self.tabs.addTab(self.buf[L], f"Buffer {L}")
+        self.tabs.addTab(self.image, "Image")
+        self.tabs.setCurrentWidget(self.image)
+        if multi:
+            for p in sh.passes:
+                if p["type"] == "common":
+                    self.common.set_text(p["code"])
+                elif p["type"] == "buffer":
+                    self.buf[p["name"][-1].upper()].set_text(p["code"])
+                    self.buf[p["name"][-1].upper()].set_inputs(p.get("inputs"))
+                else:
+                    self.image.set_text(p["code"])
+                    self.image.set_inputs(p.get("inputs"))
+        else:
+            self.image.set_text(sh.source)
+            self.image.set_inputs({"0": "audio"})
+        for e in [self.common, *self.buf.values(), self.image]:
+            e.code.setReadOnly(sh.builtin)
+            for c in e.combos:
+                c.setEnabled(not sh.builtin)
+        miss = sh.missing_media()
+        self.note = QLabel()
+        self.note.setWordWrap(True)
+        self.note.setStyleSheet("color:#ffb454")
+        if miss:
+            self.note.setText("This shader uses " + ", ".join(f"{t} {n}" for _p, _c, t, n in miss)
+                              + " which isn't on this computer yet. Use the … button next to the channel to pick a file.")
+        lay.addWidget(self.note)
+        self.msg = QLabel(); self.msg.setWordWrap(True); self.msg.setStyleSheet("color:#ff6b6b")
+        lay.addWidget(self.msg)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bb.rejected.connect(self.reject)
+        self.save_btn = None
+        if not sh.builtin:
+            self.save_btn = bb.addButton("Save changes", QDialogButtonBox.ButtonRole.AcceptRole)
+            self.save_btn.clicked.connect(self._save)
+        bb.button(QDialogButtonBox.StandardButton.Close).clicked.connect(self.reject)
+        lay.addWidget(bb)
+
+    def _save(self):
+        self.msg.setText("")
+        self.setCursor(Qt.CursorShape.WaitCursor)
+        try:
+            multi = bool(self.sh.passes) or any(e.text().strip() for e in (self.common, *self.buf.values()))
+            img_in = self.image.inputs()
+            if not multi and img_in == {0: "audio"}:
+                self.shaders.update_code(self.sh.id, self.image.text(), [])
+            else:
+                source, passes = build_passes(
+                    self.common.text(), {L: (e.text(), e.inputs()) for L, e in self.buf.items()},
+                    (self.image.text(), img_in))
+                if not passes:       # a bare image pass with no inputs
+                    passes = [{"name": "Image", "type": "image", "code": source, "inputs": {}}]
+                self.shaders.update_code(self.sh.id, source, passes)
+            self.saved = True
+            self.accept()
+        except (ShaderError, ValueError, OSError) as e:
+            self.msg.setText(f"Not saved:\n{e}")
         finally:
             self.unsetCursor()

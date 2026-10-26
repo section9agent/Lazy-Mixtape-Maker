@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel, Q
 
 from .. import __version__, audio_io, cue as cuemod, plan as planmod, prefs
 from ..audio_io import SR
-from ..engine import analyze_library, export_session, transition_preview_plan
+from ..engine import analyze_library, export_both, export_session, transition_preview_plan
 from ..render import MissingSongsError, render_mix
 from ..video import render_video
 from ..visuals import ShaderLibrary, make_context
@@ -23,7 +23,7 @@ from . import theme
 from .player import AudioPlayer
 from .dialogs import AddVisualDialog, GenerateDialog
 from .shader_manager import ShaderManager
-from .panels import CuePanel, Inspector, ThumbCache, VisualsPanel, fmt_time
+from .panels import CuePanel, Inspector, ThumbCache, VisualsPanel, fmt_hms, fmt_time
 from .state import AppState
 from .timeline import TimelineWidget, track_color
 from .tasks import TaskMixin
@@ -157,7 +157,7 @@ class MainWindow(TaskMixin, QMainWindow):
         # wiring
         self.list.currentRowChanged.connect(lambda r: s.select(r) if r >= 0 else None)
         self.list.moved.connect(self._reorder)
-        self.list.files_dropped.connect(self.add_files)
+        self.list.files_dropped.connect(lambda ps: self.add_files(ps, ask_options=any(Path(p).is_dir() for p in ps)))
         self.b_up.clicked.connect(lambda: self._nudge(-1))
         self.b_down.clicked.connect(lambda: self._nudge(1))
         self.b_remove.clicked.connect(self.remove_selected)
@@ -191,6 +191,8 @@ class MainWindow(TaskMixin, QMainWindow):
         self.a_play = act("Play", self.toggle_play, "Space", None, "▶")
         self.a_stop = act("Stop", self.stop, None, None, "■")
         self.a_audio = act("Export audio", self.export_audio, "Ctrl+E", "Save the mix as WAV, MP3 or FLAC", "♪")
+        self.a_both = act("Export mix + video", self.export_both_files, "Ctrl+Alt+E",
+                          "Save the audio and the video in one go (the mix is only rendered once)", "⧉")
         self.a_video = act("Export video", self.export_video, "Ctrl+Shift+E", "Save the mix as an MP4 video", "▣")
         self.a_cue = act("Save cue sheet…", self.export_cue)
         self.a_undo = act("Undo", self.state.undo, "Ctrl+Z")
@@ -206,7 +208,7 @@ class MainWindow(TaskMixin, QMainWindow):
         m = self.menuBar()
         f = m.addMenu("&File")
         for a in (self.a_new, self.a_open, self.a_save, self.a_save_as, None, self.a_add, self.a_add_folder, self.a_locate,
-                  None, self.a_audio, self.a_video, self.a_cue, None, self.a_quit):
+                  None, self.a_audio, self.a_video, self.a_both, self.a_cue, None, self.a_quit):
             f.addAction(a) if a else f.addSeparator()
         e = m.addMenu("&Edit")
         for a in (self.a_undo, self.a_redo, None, self.a_del):
@@ -225,7 +227,7 @@ class MainWindow(TaskMixin, QMainWindow):
         tb.setIconSize(QSize(34, 34))
         self.addToolBar(tb)
         for a in (self.a_add, self.a_add_folder, None, self.a_gen, None, self.a_play, self.a_stop, None,
-                  self.a_audio, self.a_video, None, self.a_studio):
+                  self.a_audio, self.a_video, self.a_both, None, self.a_studio):
             tb.addAction(a) if a else tb.addSeparator()
 
     # ------------------------------------------------------------------- playback
@@ -334,17 +336,23 @@ class MainWindow(TaskMixin, QMainWindow):
         d = QFileDialog.getExistingDirectory(self, "Add a folder of songs", str(self.settings.value("last_dir", "")))
         if d:
             self.settings.setValue("last_dir", d)
-            self.add_files([d])
+            self.add_files([d], ask_options=True)
 
-    def add_files(self, paths):
+    def add_files(self, paths, ask_options: bool = False):
         files = audio_io.list_audio_files(paths)
         if not files:
             self.statusBar().showMessage("No mp3, wav, flac or m4a files found.", 5000)
             return
+        chosen = None
+        if ask_options and not self.state.plan.tracks:       # a folder starts the mix: ask how to make it first
+            dlg = GenerateDialog(self.state.plan.settings, False, self)
+            if not dlg.exec():
+                return
+            chosen = dlg.result_settings()
 
         def done(res):
             lib, found, errors = res
-            self.state.add_songs(lib, found)
+            self.state.add_songs(lib, found, chosen)
             if self.state.plan.tracks and self.state.sel < 0:
                 self.state.select(0)
             if errors:
@@ -486,6 +494,38 @@ class MainWindow(TaskMixin, QMainWindow):
 
         self.run_task("Rendering video…", job, done)
 
+    def export_both_files(self):
+        if not self.state.plan.tracks or self._missing_check():
+            return
+        try:
+            make_context().release()
+        except Exception as e:  # noqa: BLE001
+            QMessageBox.warning(self, APP, "Video export needs OpenGL 3.3, which isn't available here.\n\n" + str(e))
+            return
+        r = self._ask_save("Export the mix and the video (pick the audio file name)",
+                           "WAV (*.wav);;MP3 320 kbps (*.mp3);;FLAC, best quality (*.flac)", self._mix_name() + ".wav")
+        if not r:
+            return
+        apath, chosen = r
+        if apath.suffix.lower() not in (".wav", ".mp3", ".flac"):
+            apath = apath.with_suffix({"MP3": ".mp3", "FLAC": ".flac"}.get(chosen.split()[0], ".wav"))
+        vpath = apath.with_suffix(".mp4")
+        st = self.state
+        st.session.name = self._mix_name()
+
+        def job(cb, cancel):
+            return export_both(st.session, apath, vpath, st.video, st.shaders, progress=cb, cancel=cancel)
+
+        def done(res):
+            msg = (f"Saved {res['audio']}\nSaved {res['video']}\nLength {fmt_time(res['seconds'])}")
+            if "cue" in res:
+                msg += f"\n\nCue sheet: {res['cue']}\nTrack list: {res['tracklist']}"
+            if res["warnings"]:
+                msg += "\n\nNote:\n" + "\n".join(res["warnings"])
+            QMessageBox.information(self, APP, msg)
+
+        self.run_task("Rendering the mix and the video…", job, done)
+
     def _use_for_all(self, sid):
         self.state.edit_video(lambda v: (setattr(v, "single_shader", sid), setattr(v, "mode", "single")))
         self.statusBar().showMessage("The whole video will use this visual.", 4000)
@@ -595,7 +635,8 @@ class MainWindow(TaskMixin, QMainWindow):
         bpms = [t.bpm for t in st.plan.tracks if t.bpm]
         tempo = (f"{min(bpms):.0f}–{max(bpms):.0f} BPM" if bpms and max(bpms) - min(bpms) > 1
                  else f"{st.plan.master_bpm:.0f} BPM")
-        self.info.setText(f"{len(st.plan.tracks)} songs  ·  {tempo}  ·  {fmt_time(total)}   ")
+        n = len(st.plan.tracks)
+        self.info.setText(f"{n} song{'s' if n != 1 else ''}  ·  mix length {fmt_hms(total)}  ·  {tempo}   ")
         self._update_actions()
 
     def _on_selection(self):
@@ -608,7 +649,7 @@ class MainWindow(TaskMixin, QMainWindow):
     def _update_actions(self):
         st = self.state
         has = bool(st.plan.tracks)
-        for a in (self.a_gen, self.a_play, self.a_audio, self.a_video, self.a_cue, self.a_save_as, self.a_refresh):
+        for a in (self.a_gen, self.a_play, self.a_audio, self.a_video, self.a_both, self.a_cue, self.a_save_as, self.a_refresh):
             a.setEnabled(has)
         self.a_stop.setEnabled(has)
         self.a_undo.setEnabled(st.can_undo())
@@ -646,7 +687,7 @@ class MainWindow(TaskMixin, QMainWindow):
         elif sess and self._maybe_save():
             self.load_session(sess[0])
         elif paths:
-            self.add_files(paths)
+            self.add_files(paths, ask_options=any(Path(p).is_dir() for p in paths))
 
     def closeEvent(self, ev):
         if self.task is not None:

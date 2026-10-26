@@ -292,6 +292,23 @@ def _set(prog, name, value):
             pass
 
 
+def _decode_clip(path, seconds: float = 12.0, fps: int = 12, size=(320, 180)):
+    """Decode (the first seconds of) a video clip into small RGB frames, bottom row first, to loop as a texture."""
+    import subprocess
+
+    import imageio_ffmpeg
+
+    w, h = size
+    cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-v", "error", "-i", str(path), "-t", str(seconds), "-an",
+           "-vf", f"fps={fps},scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
+    raw = subprocess.run(cmd, capture_output=True, timeout=120).stdout
+    n = len(raw) // (w * h * 3)
+    if n < 1:
+        raise ValueError("no video frames could be read")
+    arr = np.frombuffer(raw[: n * w * h * 3], dtype=np.uint8).reshape(n, h, w, 3)
+    return [np.ascontiguousarray(a[::-1]) for a in arr], fps, (w, h)
+
+
 class _ShaderInstance:
     """One shader ready to draw: every pass compiled, buffer textures allocated.
     Buffers keep their contents between frames (feedback effects) and are cleared
@@ -335,7 +352,7 @@ class _ShaderInstance:
                 fbo.clear(0.0, 0.0, 0.0, 0.0)
             b["cur"] = 0
 
-    def _bind(self, p):
+    def _bind(self, p, t=0.0):
         r = self.r
         inputs = p["inputs"]
         sizes = []
@@ -351,6 +368,8 @@ class _ShaderInstance:
                 tex = r.audio_tex
             elif kind == "keyboard":
                 tex = r.key_tex
+            elif kind and kind.startswith(("texture:", "video:")):
+                tex = r.media(kind, t)
             if tex is None:
                 tex = r.noise_tex if kind else r.blank
             tex.use(ch)
@@ -365,7 +384,7 @@ class _ShaderInstance:
         _set(prog, "iMouse", (0.0, 0.0, 0.0, 0.0))
         _set(prog, "iDate", (2026.0, 1.0, 1.0, float(t)))
         _set(prog, "iChannelTime", [float(t)] * 4)
-        sizes = self._bind(p)
+        sizes = self._bind(p, t)
         if "iChannelResolution" in prog:
             try:
                 prog["iChannelResolution"].value = sizes
@@ -426,13 +445,15 @@ class GLRenderer:
         self.blank = self.ctx.texture((1, 1), 4, bytes(4))
         self.key_tex = self.ctx.texture((256, 3), 1, bytes(256 * 3))
         self.programs: dict[str, tuple] = {}
+        self._media: dict = {}
         self.cards: dict[str, tuple] = {}
         self.last_t = -1.0
         self.warnings: list[str] = []
 
     # -- shaders
     def instance(self, shader: Shader):
-        got = self.programs.get(shader.id)
+        key = f"{shader.id}:{hash((shader.source, repr(shader.passes)))}"
+        got = self.programs.get(key)
         if got is None:
             try:
                 got = _ShaderInstance(self, shader)
@@ -440,7 +461,7 @@ class GLRenderer:
                 msg = str(e).strip().splitlines()
                 self.warnings.append(f"'{shader.name}' failed to compile and was replaced: {msg[-1] if msg else ''}")
                 got = _ShaderInstance(self, BUILTIN["builtin:plasma"])
-            self.programs[shader.id] = got
+            self.programs[key] = got
         return got
 
     def draw_shader(self, shader: Shader, t: float, frame: int, slot: int, audio_t: float | None = None):
@@ -451,6 +472,50 @@ class GLRenderer:
         if t != self.last_t:
             self.audio_tex.write(self.audio.at(t).tobytes())
             self.last_t = t
+
+    # -- textures and video clips a shader uses
+    def media(self, kind: str, t: float):
+        """GL texture for a "texture:<file>" / "video:<file>" input (None if the file is missing)."""
+        got = self._media.get(kind)
+        if got is None:
+            got = self._load_media(kind)
+            self._media[kind] = got
+        if got is False:
+            return None
+        if got["frames"] is not None:
+            frames = got["frames"]
+            i = int(max(t, 0.0) * got["fps"]) % len(frames)
+            if i != got["cur"]:
+                got["tex"].write(frames[i].tobytes())
+                got["cur"] = i
+        return got["tex"]
+
+    def _load_media(self, kind: str):
+        from .visuals import kind_media, media_path
+        kind_, name = kind_media(kind)
+        path = media_path(name)
+        if path is None:
+            self.warnings.append(f"A {kind_} the shader uses is missing: {name}")
+            return False
+        try:
+            if kind_ == "texture":
+                from PIL import Image
+                img = Image.open(path).convert("RGBA")
+                img.thumbnail((1024, 1024))
+                img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+                tex = self.ctx.texture(img.size, 4, img.tobytes())
+                tex.build_mipmaps()
+                tex.filter = (self.mgl.LINEAR_MIPMAP_LINEAR, self.mgl.LINEAR)
+                tex.repeat_x = tex.repeat_y = True
+                return {"tex": tex, "frames": None, "fps": 0, "cur": -1}
+            frames, fps, (w, h) = _decode_clip(path)
+            tex = self.ctx.texture((w, h), 3, frames[0].tobytes())
+            tex.filter = (self.mgl.LINEAR, self.mgl.LINEAR)
+            tex.repeat_x = tex.repeat_y = True
+            return {"tex": tex, "frames": frames, "fps": fps, "cur": 0}
+        except Exception as e:  # noqa: BLE001
+            self.warnings.append(f"Couldn't load {name}: {e}")
+            return False
 
     # -- cards
     def card(self, key: str, make) -> tuple:

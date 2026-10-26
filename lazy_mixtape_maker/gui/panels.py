@@ -27,6 +27,12 @@ def fmt_time(sec: float) -> str:
     return f"{sec // 60}:{sec % 60:02d}"
 
 
+def fmt_hms(sec: float) -> str:
+    """HH:MM:SS"""
+    sec = max(0, int(round(sec)))
+    return f"{sec // 3600:02d}:{sec % 3600 // 60:02d}:{sec % 60:02d}"
+
+
 def _spin(lo, hi, step, decimals=1, suffix=""):
     s = QDoubleSpinBox()
     s.setRange(lo, hi)

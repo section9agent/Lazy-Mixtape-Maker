@@ -1,4 +1,4 @@
-name: Build apps v3
+name: Build apps
 on:
   push: { tags: ["v*"] }
   workflow_dispatch:

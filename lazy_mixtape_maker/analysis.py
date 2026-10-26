@@ -133,6 +133,32 @@ def _cache_load(cache_dir, fid):
     return None
 
 
+SIDECAR_SUFFIX = ".lmmanalysis"
+
+
+def sidecar_path(path) -> Path:
+    """The analysis file kept next to a song: "Song.mp3" -> "Song.mp3.lmmanalysis"."""
+    p = Path(path)
+    return p.with_name(p.name + SIDECAR_SUFFIX)
+
+
+def _sidecar_load(path, fid):
+    try:
+        d = json.loads(sidecar_path(path).read_text(encoding="utf-8"))
+        if d.get("version") == ANALYSIS_VERSION and d.get("id") == fid:
+            return SongAnalysis.from_dict(d)
+    except Exception:
+        pass
+    return None
+
+
+def _sidecar_save(path, an: SongAnalysis):
+    try:                                            # a read-only music folder is fine: the cache still works
+        sidecar_path(path).write_text(json.dumps(an.to_dict()), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _cache_save(cache_dir, an: SongAnalysis):
     if not cache_dir:
         return
@@ -333,9 +359,12 @@ def analyze_file(path, cache_dir=None, force: bool = False, progress=None) -> So
     if cache_dir is None:
         cache_dir = default_cache_dir()
     if not force:
-        hit = _cache_load(cache_dir, fid)
+        # 1) the analysis file saved next to the song, 2) the app's own cache folder
+        hit = _sidecar_load(path, fid) or _cache_load(cache_dir, fid)
         if hit:
             hit.path = str(path)
+            if not sidecar_path(path).exists():
+                _sidecar_save(path, hit)           # found only in the cache: leave a copy next to the song too
             return hit
 
     def tick(stage, frac):
@@ -469,5 +498,6 @@ def analyze_file(path, cache_dir=None, force: bool = False, progress=None) -> So
         bar_energy_origin=float(bar_lines[0]) if len(bar_lines) else 0.0, wave=wave,
     )
     _cache_save(cache_dir, an)
+    _sidecar_save(path, an)
     tick("done", 1.0)
     return an

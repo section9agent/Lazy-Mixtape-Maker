@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog
 
 from ..video import AudioTexture
 from ..visuals import Shader, ShaderLibrary, shader_to_json
-from .dialogs import AddVisualDialog
+from .dialogs import AddVisualDialog, EditShaderDialog
 from .workers import FrameWorker
 
 ENERGY = (("calm", "Calm"), ("mid", "Medium"), ("high", "Intense"))
@@ -74,6 +74,13 @@ class ShaderManager(QWidget):
         for b in (self.b_add, self.b_export, self.b_remove):
             row.addWidget(b)
         left.addLayout(row)
+        row2 = QHBoxLayout()
+        self.b_backup = QPushButton("Back up all…")
+        self.b_backup.setToolTip("Save every visual you added (with their textures and clips) into one file.")
+        self.b_restore = QPushButton("Import backup…")
+        self.b_restore.setToolTip("Add back the visuals from a backup file.")
+        row2.addWidget(self.b_backup); row2.addWidget(self.b_restore)
+        left.addLayout(row2)
         lay.addLayout(left, 3)
 
         right = QVBoxLayout()
@@ -105,7 +112,7 @@ class ShaderManager(QWidget):
         form.addRow("Suits", self.energy)
         form.addRow(self.info)
         right.addLayout(form)
-        self.b_code = QPushButton("View code…")
+        self.b_code = QPushButton("View/Edit Code")
         right.addWidget(self.b_code, 0, Qt.AlignmentFlag.AlignLeft)
         self.warn = QLabel()
         self.warn.setWordWrap(True)
@@ -122,6 +129,8 @@ class ShaderManager(QWidget):
         self.b_remove.clicked.connect(self.remove)
         self.b_export.clicked.connect(self.export)
         self.b_code.clicked.connect(self.view_code)
+        self.b_backup.clicked.connect(self.backup)
+        self.b_restore.clicked.connect(self.restore)
         self.b_play.clicked.connect(self._toggle)
         self.b_restart.clicked.connect(self._restart)
         self.b_use.clicked.connect(lambda: self.current() and self.use_clicked.emit(self.current().id))
@@ -183,7 +192,12 @@ class ShaderManager(QWidget):
             if sh.url:
                 text += f'<br><a href="{sh.url}">{sh.url}</a>'
             self.info.setText(text)
-            self.warn.setText("\n".join(sh.warnings))
+            warns = list(sh.warnings)
+            miss = sh.missing_media()
+            if miss:
+                warns.append("Needs " + ", ".join(f"{t} {n}" for _p, _c, t, n in miss)
+                             + " - open View/Edit Code and pick the file(s).")
+            self.warn.setText("\n".join(warns))
             self._restart()
         else:
             self.name.clear(); self.info.clear(); self.warn.clear()
@@ -229,8 +243,45 @@ class ShaderManager(QWidget):
 
     def view_code(self):
         sh = self.current()
-        if sh:
-            CodeDialog(sh, self).exec()
+        if not sh:
+            return
+        dlg = EditShaderDialog(self.shaders, sh, self)
+        dlg.exec()
+        if dlg.saved:
+            self.thumbs.forget(sh.id)
+            self.rebuild(sh.id)
+            self.changed.emit()
+
+    def backup(self):
+        d = str(QSettings().value("last_export_dir", ""))
+        path, _ = QFileDialog.getSaveFileName(self, "Back up all visuals",
+                                              str(Path(d) / time.strftime("LazyMixtapeMaker-visuals-%Y%m%d.lmmshaders")),
+                                              "Shader backup (*.lmmshaders)")
+        if not path:
+            return
+        try:
+            n = self.shaders.backup(path)
+        except OSError as e:
+            QMessageBox.warning(self, "Lazy Mixtape Maker", f"Couldn't write the backup:\n{e}")
+            return
+        QMessageBox.information(self, "Lazy Mixtape Maker", f"Backed up {n} visual{'s' if n != 1 else ''}.")
+
+    def restore(self):
+        d = str(QSettings().value("last_export_dir", ""))
+        path, _ = QFileDialog.getOpenFileName(self, "Import a visuals backup", d,
+                                              "Shader backup (*.lmmshaders *.json)")
+        if not path:
+            return
+        try:
+            added, have = self.shaders.restore(path)
+        except (OSError, ValueError) as e:
+            QMessageBox.warning(self, "Lazy Mixtape Maker", f"Couldn't read that backup:\n{e}")
+            return
+        self.rebuild()
+        self.changed.emit()
+        QMessageBox.information(self, "Lazy Mixtape Maker",
+                                f"Added {added} visual{'s' if added != 1 else ''}"
+                                + (f"; {have} were already here." if have else "."))
 
     def _rename(self):
         sh = self.current()

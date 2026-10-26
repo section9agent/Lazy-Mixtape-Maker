@@ -34,6 +34,50 @@ def data_dir() -> Path:
     return base
 
 
+def media_dir() -> Path:
+    """Where textures and video clips used by shaders are kept (inside the app data folder)."""
+    return data_dir() / "media"
+
+
+def media_path(name: str) -> Path | None:
+    """The file behind a "texture:<name>" / "video:<name>" input, or None if it isn't there."""
+    if not name:
+        return None
+    p = Path(name)
+    if p.is_absolute():
+        return p if p.is_file() else None
+    p = media_dir() / Path(name).name
+    return p if p.is_file() else None
+
+
+def valid_kind(k) -> bool:
+    return isinstance(k, str) and (k in CHANNEL_KINDS or k.startswith(("texture:", "video:")))
+
+
+def add_media(path) -> str:
+    """Copy a texture / video clip the user picked into the media folder; returns the name to use in
+    a "texture:<name>" / "video:<name>" input."""
+    import hashlib
+    import shutil
+
+    src = Path(path)
+    h = hashlib.sha1(src.read_bytes()[:1 << 20] + str(src.stat().st_size).encode()).hexdigest()[:8]
+    name = f"{h}_{re.sub(r'[^A-Za-z0-9._-]', '_', src.name)}"
+    media_dir().mkdir(parents=True, exist_ok=True)
+    dst = media_dir() / name
+    if not dst.exists():
+        shutil.copyfile(src, dst)
+    return name
+
+
+def kind_media(kind):
+    """("texture"|"video", name) for a media input kind, else None."""
+    if isinstance(kind, str) and kind.startswith(("texture:", "video:")):
+        t, _, n = kind.partition(":")
+        return t, n
+    return None
+
+
 # --------------------------------------------------------------------- shader model
 @dataclass
 class Shader:
@@ -47,12 +91,26 @@ class Shader:
     warnings: list[str] = field(default_factory=list)
     added: str = ""
     # Multi-pass shaders: [{"name": "Buffer A"|...|"Image", "code": str, "inputs": {channel: kind}}]
-    # kind is "buffer:A".."buffer:D", "audio", "keyboard" or "noise". Empty = just `source`.
+    # kind is "buffer:A".."buffer:D", "audio", "keyboard", "noise", "texture:<file>" or "video:<file>".
+    # Empty = just `source`.
     passes: list[dict] = field(default_factory=list)
 
     @property
     def builtin(self) -> bool:
         return self.origin == "builtin"
+
+    def media_inputs(self) -> list[tuple[str, str, str, str]]:
+        """Every texture / video input: (pass name, channel, "texture"|"video", file name)."""
+        out = []
+        for p in self.passes:
+            for ch, kind in sorted((p.get("inputs") or {}).items()):
+                m = kind_media(kind)
+                if m:
+                    out.append((p.get("name", "Image"), ch, m[0], m[1]))
+        return out
+
+    def missing_media(self) -> list[tuple[str, str, str, str]]:
+        return [m for m in self.media_inputs() if media_path(m[3]) is None]
 
     def to_dict(self) -> dict:
         return {k: getattr(self, k) for k in self.__dataclass_fields__}
@@ -193,8 +251,12 @@ def parse_shadertoy_json(text: str):
     image = next((p for p in rps if p.get("type") == "image"), None)
     if image is None:
         raise ValueError("That JSON has no Image pass (sound / cubemap-only shaders can't be used).")
+    warnings_pre: list[str] = []
+    if any(p.get("type") == "sound" for p in rps):
+        warnings_pre.append("This shader makes its own sound. That sound is muted and not used; "
+                            "the video uses your mix's audio.")
     common = "\n".join(p.get("code", "") for p in rps if p.get("type") == "common")
-    warnings: list[str] = []
+    warnings: list[str] = list(warnings_pre)
     out_ids = {}
     for p in rps:
         if p.get("type") == "buffer":
@@ -215,7 +277,16 @@ def parse_shadertoy_json(text: str):
             return "audio"
         if ct == "keyboard":
             return "keyboard"
-        if ct in ("webcam", "video", "volume", "cubemap"):
+        if ct in ("texture", "video"):
+            fp = str(inp.get("filepath") or inp.get("src") or "")
+            fname = fp.replace("\\", "/").rsplit("/", 1)[-1]
+            if fname and fname.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp",
+                                                 ".mp4", ".webm", ".ogv", ".mov", ".mkv", ".avi")):
+                return f"{'video' if ct == 'video' else 'texture'}:{fname}"
+            if ct == "video":
+                unsupported.add(ct)
+            return "noise"
+        if ct in ("webcam", "volume", "cubemap"):
             unsupported.add(ct)
         return "noise"
 
@@ -229,8 +300,11 @@ def parse_shadertoy_json(text: str):
         if common.strip():
             passes.insert(0, {"name": "Common", "type": "common", "code": common, "inputs": {}})
     else:
-        for i in image.get("inputs", []):
-            kind_of(i)
+        ins = {str(i.get("channel", 0)): kind_of(i) for i in image.get("inputs", [])}
+        if ins:       # keep which channel feeds what (e.g. the music on iChannel1) instead of guessing
+            if common.strip():
+                passes.append({"name": "Common", "type": "common", "code": common, "inputs": {}})
+            passes.append({"name": "Image", "type": "image", "code": image.get("code", ""), "inputs": ins})
     if unsupported:
         warnings.append("Uses inputs (" + ", ".join(sorted(unsupported))
                         + ") that aren't available offline; they're replaced with noise.")
@@ -255,6 +329,9 @@ def shader_to_json(sh: "Shader") -> str:
                     ent.update(ctype="music", id="audio")
                 elif kind == "keyboard":
                     ent.update(ctype="keyboard", id="kb")
+                elif kind_media(kind):
+                    t, n = kind_media(kind)
+                    ent.update(ctype=t, id=n, filepath="/media/a/" + n)
                 else:
                     ent.update(ctype="texture", id="noise")
                 ins.append(ent)
@@ -329,11 +406,11 @@ def build_passes(common: str = "", buffers: dict | None = None, image: tuple[str
         code, ins = (buffers or {}).get(letter, ("", {}))
         if code.strip():
             passes.append({"name": f"Buffer {letter}", "type": "buffer", "code": code,
-                           "inputs": {str(c): k for c, k in ins.items() if k in CHANNEL_KINDS}})
-    passes.append({"name": "Image", "type": "image", "code": image[0],
-                   "inputs": {str(c): k for c, k in image[1].items() if k in CHANNEL_KINDS}})
-    if len(passes) == 1:
-        passes = []           # just an Image pass: store it as a plain shader (keeps its inputs)
+                           "inputs": {str(c): k for c, k in ins.items() if valid_kind(k)}})
+    img_ins = {str(c): k for c, k in image[1].items() if valid_kind(k)}
+    passes.append({"name": "Image", "type": "image", "code": image[0], "inputs": img_ins})
+    if len(passes) == 1 and not img_ins:
+        passes = []           # a bare Image pass with no inputs chosen: store it as a plain shader
     source = (common + "\n" if common.strip() else "") + image[0]
     return source, passes
 
@@ -373,8 +450,7 @@ class ShaderLibrary:
             if err:
                 raise ShaderError(err)
         for ex in self._user.values():  # same code twice -> reuse (the newest explicit name wins)
-            if ex.source.strip() == source.strip() and \
-                    [q.get("code") for q in ex.passes] == [q.get("code") for q in (passes or [])]:
+            if ex.source.strip() == source.strip() and ex.passes == (passes or []):
                 nm = (name or "").strip()[:80]
                 if nm and nm != "Imported shader" and nm != ex.name:
                     ex.name = nm
@@ -409,7 +485,12 @@ class ShaderLibrary:
 
     def add_from_shadertoy(self, url_or_id: str, api_key: str = "") -> Shader:
         name, author, code, warns, url, passes = fetch_from_shadertoy(url_or_id, api_key)
-        return self.add(name, code, author=author, origin="shadertoy-api", url=url, warnings=warns, passes=passes)
+        sh = self.add(name, code, author=author, origin="shadertoy-api", url=url, warnings=warns, passes=passes)
+        try:
+            self.fetch_missing_media(sh.id)
+        except Exception:  # noqa: BLE001
+            pass
+        return sh
 
     def add_from_passes(self, name: str, common: str = "", buffers: dict | None = None,
                         image: tuple[str, dict] | None = None) -> Shader:
@@ -427,6 +508,88 @@ class ShaderLibrary:
         sh.energy = energy
         self._save(sh)
 
+    def update_code(self, sid: str, source: str, passes: list[dict] | None = None) -> Shader:
+        """Replace the code (and, for multi-pass shaders, every pass and its inputs) of a saved shader.
+        The new code must compile; the old version is kept if it doesn't."""
+        sh = self._user.get(sid)
+        if sh is None:
+            raise ValueError("Built-in visuals can't be edited.")
+        passes = [dict(p) for p in (passes or [])]
+        if passes:
+            img = next((p for p in reversed(passes) if p.get("type") == "image"), None)
+            if img is None or not img.get("code", "").strip():
+                raise ValueError("The Image pass is empty - every shader needs one.")
+            common = next((p["code"] for p in passes if p.get("type") == "common"), "")
+            source = (common + "\n" if common.strip() else "") + img["code"]
+        err = validate(source, passes)
+        if err:
+            raise ShaderError(err)
+        sh.source, sh.passes = source, passes
+        self._save(sh)
+        return sh
+
+    def fetch_missing_media(self, sid: str, timeout: float = 20.0) -> list[str]:
+        """Best effort: download the textures / clips a Shadertoy shader refers to. Returns the names still missing."""
+        import urllib.request
+
+        sh = self.get(sid)
+        left = []
+        for _p, _c, _t, name in (sh.missing_media() if sh else []):
+            try:
+                req = urllib.request.Request(f"https://www.shadertoy.com/media/a/{name}",
+                                             headers={"User-Agent": "Mozilla/5.0 (compatible; LazyMixtapeMaker)"})
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    data = r.read(60 << 20)
+                if len(data) < 100:
+                    raise OSError("empty")
+                media_dir().mkdir(parents=True, exist_ok=True)
+                (media_dir() / Path(name).name).write_bytes(data)
+            except Exception:  # noqa: BLE001
+                left.append(name)
+        return left
+
+    # -- backup of everything the user added
+    def backup(self, path) -> int:
+        import base64
+
+        shaders, media = [], {}
+        for sh in self._user.values():
+            shaders.append(sh.to_dict())
+            for _p, _c, _t, name in sh.media_inputs():
+                f = media_path(name)
+                if f and name not in media:
+                    media[name] = base64.b64encode(f.read_bytes()).decode()
+        Path(path).write_text(json.dumps({"lmm_shader_backup": 1, "shaders": shaders, "media": media}), encoding="utf-8")
+        return len(shaders)
+
+    def restore(self, path) -> tuple[int, int]:
+        """Add the shaders from a backup file. Returns (added, already_there)."""
+        import base64
+
+        d = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(d, dict) or "shaders" not in d:
+            raise ValueError("That isn't a Lazy Mixtape Maker shader backup.")
+        for name, b in (d.get("media") or {}).items():
+            f = media_dir() / Path(name).name
+            if not f.exists():
+                media_dir().mkdir(parents=True, exist_ok=True)
+                f.write_bytes(base64.b64decode(b))
+        added = have = 0
+        for sd in d["shaders"]:
+            try:
+                sh = Shader.from_dict(sd)
+            except Exception:  # noqa: BLE001
+                continue
+            if sh.id in BUILTIN or sh.id in self._user or any(
+                    e.source.strip() == sh.source.strip()
+                    and e.passes == sh.passes
+                    for e in self._user.values()):
+                have += 1
+                continue
+            self._save(sh)
+            added += 1
+        return added, have
+
     def remove(self, sid: str) -> None:
         if sid in BUILTIN:
             raise ValueError("Built-in visuals can't be removed.")
@@ -442,6 +605,14 @@ class ShaderLibrary:
             sh = self._user.get(sid)
             if sh:
                 out[sid] = sh.to_dict()
+                med = {}
+                import base64
+                for _p, _c, _t, name in sh.media_inputs():
+                    f = media_path(name)
+                    if f and f.stat().st_size < (20 << 20):
+                        med[name] = base64.b64encode(f.read_bytes()).decode()
+                if med:
+                    out[sid]["_media"] = med
         return out
 
     def import_embedded(self, embedded: dict[str, dict]) -> None:
@@ -451,6 +622,12 @@ class ShaderLibrary:
             if sid in BUILTIN or sid in self._user:
                 continue
             try:
+                import base64
+                for name, b in (d.get("_media") or {}).items():
+                    f = media_dir() / Path(name).name
+                    if not f.exists():
+                        media_dir().mkdir(parents=True, exist_ok=True)
+                        f.write_bytes(base64.b64decode(b))
                 self._save(Shader.from_dict({**d, "id": sid}))
             except Exception:  # noqa: BLE001
                 continue
