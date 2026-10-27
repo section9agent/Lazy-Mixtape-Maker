@@ -137,6 +137,10 @@ Pick the visual for the selected song (used in video export). See [Making a vide
 
 ---
 
+### Preview the video live
+
+**Preview video** (Ctrl+Shift+P, in the toolbar and the Tools menu) opens a window that shows the visuals in real time, using the same drawing code as the exporter, so the blends and the cover/artist/title card match the final video. It follows the timeline: press **Play** (in either window) and it plays; drag the playhead and it scrubs. Press Play once so the mix is rendered, and music-reactive visuals then react to your sound. Changing a song's visual, the visual mode or the overlay updates the picture straight away. It's drawn at a reduced size to stay smooth; the export is full quality.
+
 ## 7. Effects
 
 Open the **Effects** tab for the selected song. Use **Add at start** or **Add at end**, then adjust the effect's timing and settings. Select an effect in the list or click its block on the timeline. **Remove effect** deletes it.

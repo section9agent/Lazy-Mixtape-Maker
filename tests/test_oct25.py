@@ -287,3 +287,31 @@ def test_edit_dialog_saves_and_offers_the_texture(tmp_path, monkeypatch):
     bad.image.set_text("void mainImage(out vec4 c,in vec2 p){ c = oops; }")
     bad._save()
     assert not bad.saved and "Not saved" in bad.msg.text()
+
+
+def test_live_video_preview_follows_the_timeline(tmp_path, monkeypatch):
+    _need_gl()
+    import time
+    app, w, _d = _gui_window(tmp_path, monkeypatch, n=2)
+    w.open_video_preview()
+    pv = w._vpreview
+    got = []
+    pv.worker.frame.connect(lambda img, tag: got.append(img))
+
+    def spin(sec):
+        end = time.time() + sec
+        while time.time() < end:
+            app.processEvents()
+            time.sleep(0.02)
+    spin(2.0)
+    assert got, "the preview should draw a frame as soon as it opens"
+    n = len(got)
+    w._seek(20.0)                      # scrubbing the timeline updates the picture
+    spin(1.5)
+    assert len(got) > n and pv.time.text().startswith("0:20")
+    # a frame is real picture, not an empty screen
+    img = got[-1]
+    assert img.width() == 480 and img.height() == 270
+    pv.close()
+    w.state.dirty = False
+    w.close()

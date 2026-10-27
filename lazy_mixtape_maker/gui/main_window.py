@@ -198,6 +198,8 @@ class MainWindow(TaskMixin, QMainWindow):
         self.a_undo = act("Undo", self.state.undo, "Ctrl+Z")
         self.a_redo = act("Redo", self.state.redo, "Ctrl+Shift+Z")
         self.a_del = act("Remove selected song", self.remove_selected, "Delete")
+        self.a_vpreview = act("Preview video", self.open_video_preview, "Ctrl+Shift+P",
+                              "Watch the visuals in real time, in sync with the timeline", "◐")
         self.a_studio = act("Visualization Studio", self.open_studio, "Ctrl+Shift+V", "Make a video for a mixtape you already have", "◉")
         self.a_overlay = act("Show cover art, artist and title on videos", self.toggle_overlay)
         self.a_overlay.setCheckable(True)
@@ -217,6 +219,7 @@ class MainWindow(TaskMixin, QMainWindow):
         for a in (self.a_gen, self.a_refresh, None, self.a_play, self.a_stop):
             mx.addAction(a) if a else mx.addSeparator()
         tm = m.addMenu("&Tools")
+        tm.addAction(self.a_vpreview)
         tm.addAction(self.a_studio)
         sm = m.addMenu("&Settings")
         sm.addAction(self.a_overlay)
@@ -227,7 +230,7 @@ class MainWindow(TaskMixin, QMainWindow):
         tb.setIconSize(QSize(34, 34))
         self.addToolBar(tb)
         for a in (self.a_add, self.a_add_folder, None, self.a_gen, None, self.a_play, self.a_stop, None,
-                  self.a_audio, self.a_video, self.a_both, None, self.a_studio):
+                  self.a_audio, self.a_video, self.a_both, None, self.a_vpreview, self.a_studio):
             tb.addAction(a) if a else tb.addSeparator()
 
     # ------------------------------------------------------------------- playback
@@ -494,6 +497,13 @@ class MainWindow(TaskMixin, QMainWindow):
 
         self.run_task("Rendering video…", job, done)
 
+    def open_video_preview(self):
+        from .video_preview import VideoPreviewWindow
+        w = getattr(self, "_vpreview", None)
+        if w is None:
+            w = self._vpreview = VideoPreviewWindow(self)
+        w.show(); w.raise_(); w.activateWindow()
+
     def export_both_files(self):
         if not self.state.plan.tracks or self._missing_check():
             return
@@ -649,7 +659,7 @@ class MainWindow(TaskMixin, QMainWindow):
     def _update_actions(self):
         st = self.state
         has = bool(st.plan.tracks)
-        for a in (self.a_gen, self.a_play, self.a_audio, self.a_video, self.a_both, self.a_cue, self.a_save_as, self.a_refresh):
+        for a in (self.a_gen, self.a_play, self.a_audio, self.a_video, self.a_both, self.a_vpreview, self.a_cue, self.a_save_as, self.a_refresh):
             a.setEnabled(has)
         self.a_stop.setEnabled(has)
         self.a_undo.setEnabled(st.can_undo())
@@ -701,6 +711,9 @@ class MainWindow(TaskMixin, QMainWindow):
             ev.ignore()
             return
         self._tick.stop()
+        vp = getattr(self, "_vpreview", None)
+        if vp is not None:
+            vp.close()
         self.library.shutdown()
         self._player.close()
         self.thumbs.shutdown()
