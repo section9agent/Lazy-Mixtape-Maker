@@ -13,7 +13,13 @@ import numpy as np
 import soundfile as sf
 
 SR = 44100
-AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a"}
+PURE_AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a"}
+VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v"}
+AUDIO_EXTS = PURE_AUDIO_EXTS | VIDEO_EXTS      # a video file is used for its sound and, in video exports, its picture
+
+
+def is_video_file(path) -> bool:
+    return Path(path).suffix.lower() in VIDEO_EXTS
 
 
 class AudioError(RuntimeError):
@@ -143,7 +149,10 @@ def read_tags(path) -> dict:
 
 def extract_cover(path, out_path) -> bool:
     """Pull embedded cover art to a jpg/png (used later by the video exporter)."""
-    cmd = [ffmpeg(), "-v", "error", "-nostdin", "-y", "-i", str(path), "-an", "-frames:v", "1", str(out_path)]
+    cmd = [ffmpeg(), "-v", "error", "-nostdin", "-y"]
+    if is_video_file(path):
+        cmd += ["-ss", "1"]                       # a frame from just inside the video (the very first is often black)
+    cmd += ["-i", str(path), "-an", "-frames:v", "1", str(out_path)]
     return subprocess.run(cmd, capture_output=True).returncode == 0 and Path(out_path).exists()
 
 

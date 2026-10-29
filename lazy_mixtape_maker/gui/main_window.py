@@ -21,6 +21,7 @@ from ..video import render_video
 from ..visuals import ShaderLibrary, make_context
 from . import theme
 from .player import AudioPlayer
+from .transition_editor import TransitionsPanel
 from .dialogs import AddVisualDialog, GenerateDialog
 from .shader_manager import ShaderManager
 from .panels import CuePanel, Inspector, ThumbCache, VisualsPanel, fmt_hms, fmt_time
@@ -31,7 +32,7 @@ from .workers import Worker
 
 ORG, APP = "LazyMixtapeMaker", "Lazy Mixtape Maker"
 SESSION_FILTER = "Lazy Mixtape session (*.lmm)"
-AUDIO_FILTER = "Music (*.mp3 *.wav *.flac *.m4a)"
+AUDIO_FILTER = "Music and video (*.mp3 *.wav *.flac *.m4a *.mp4 *.mkv *.mov *.webm *.avi *.m4v)"
 
 
 class TrackList(QListWidget):
@@ -146,6 +147,8 @@ class MainWindow(TaskMixin, QMainWindow):
         self.bottom.addTab(tl, "Timeline")
         self.bottom.addTab(self.cue, "Cue sheet")
         self.bottom.addTab(self.visuals, "Visuals")
+        self.transitions = TransitionsPanel(s)
+        self.bottom.addTab(self.transitions, "Video transitions")
         self.library = ShaderManager(s.shaders, self.thumbs, "Use for the whole video")
         self.bottom.addTab(self.library, "Shader library")
         split = QSplitter(Qt.Orientation.Vertical)

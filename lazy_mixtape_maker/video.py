@@ -16,6 +16,7 @@ from . import audio_io, prefs
 from .analysis import SongAnalysis
 from .audio_io import SR
 from .plan import MixPlan, timeline
+from .transitions import KIND as _KIND, GL_ID, GLSL as _TRANS_GLSL, TransitionParams, ease as _ease, resolve as _resolve_transition
 from .visuals import BUILTIN, Shader, ShaderError, ShaderLibrary, VERTEX, compile_program, make_context
 
 MODES = ("auto", "random", "per_song", "single")
@@ -43,6 +44,9 @@ class VideoSettings:
     seed: int = field(default_factory=lambda: random.randrange(1, 1 << 30))   # reshuffles the random picks
     blend: float = 6.0               # visual cross-fade length (studio; mixes follow the audio blend)
     show_overlay: bool = True        # cover art + artist/title, lower left
+    transition: dict = field(default_factory=lambda: TransitionParams().to_dict())    # default for every boundary
+    transitions: dict[str, dict] = field(default_factory=dict)   # incoming track / marker uid -> its own settings
+    use_video: bool = True           # video files in the mix / studio supply the picture instead of a visual
     crf: int = 18                    # x264 quality (lower = better)
     preset: str = "medium"           # x264 speed preset
 
@@ -63,7 +67,7 @@ def attach_to_session(session, vs: VideoSettings, shaders: ShaderLibrary, plan: 
     """Store the video settings plus the code of every user shader they use, so a
     shared session file brings its visuals along."""
     session.extra["video"] = vs.to_dict()
-    used = set(vs.assignments.values()) | {vs.single_shader}
+    used = {v for v in vs.assignments.values() if not str(v).startswith("@")} | {vs.single_shader}
     session.extra["shaders"] = shaders.export_used(used)
 
 
@@ -116,7 +120,7 @@ def pick_visuals(keys: list[str], energies: list[float | None], vs: VideoSetting
     out: list[str] = []
     for key, e in zip(keys, energies):
         fixed = vs.assignments.get(key, "") if vs.mode == "per_song" else ""
-        if fixed and shaders.get(fixed):
+        if fixed and (shaders.get(fixed) or str(fixed).startswith("@clip:")):
             pick = fixed
         else:
             ok = [i for i in ids if i not in recent[-memory:]] if memory else list(ids)
@@ -261,12 +265,105 @@ class AudioTexture:
         return out
 
 
+def _level(mono: np.ndarray, sr: int, N: int, win: np.ndarray, t: float) -> float:
+    """Bass level 0..1 of the N samples ending at t (stateless, so scrubbing works)."""
+    end = int(t * sr)
+    if end <= 0:
+        return 0.0
+    seg = mono[max(0, end - N):end]
+    if len(seg) < N:
+        seg = np.pad(seg, (N - len(seg), 0))
+    spec = np.abs(np.fft.rfft(seg * win)) / N
+    top = max(3, int(160.0 / (sr / N)))               # up to ~160 Hz
+    db = 20.0 * np.log10(float(np.sqrt(np.mean(spec[1:top] ** 2))) + 1e-9)
+    return float(np.clip((db + 78.0) / 36.0, 0.0, 1.0))
+
+
+def audio_features(a: "AudioTexture", t: float) -> tuple[float, float]:
+    """(bass, pulse) for the rhythm transitions: how loud the low end is, and how sharply it just rose (a kick)."""
+    if a.mono is None:                                # no audio yet: a gentle 2 Hz fake so the effects can be seen
+        ph = (t * 2.0) % 1.0
+        return 0.5 + 0.3 * math.sin(t * 6.0), max(0.0, 1.0 - ph * 4.0)
+    now = _level(a.mono, a.sr, a.N, a.win, t)
+    before = 0.5 * (_level(a.mono, a.sr, a.N, a.win, t - 0.11) + _level(a.mono, a.sr, a.N, a.win, t - 0.24))
+    return now, float(np.clip((now - before) * 4.0, 0.0, 1.0))
+
+
+# ------------------------------------------------------------------------ video files as pictures
+KIND_RHYTHM = {k for k, v in _KIND.items() if v == "rhythm"}
+
+
+class VideoSource:
+    """Plays a video file as frames of a given size (cover-fit, so it fills the picture), sequentially through
+    one ffmpeg process. Asking for an earlier time, or a much later one, restarts it there."""
+
+    FPS = 30
+
+    def __init__(self, path, w: int, h: int, loop: bool = False):
+        self.path, self.w, self.h, self.loop = str(path), int(w), int(h), loop
+        self.proc = None
+        self.t_cur = -1.0          # source time of self.frame
+        self.frame: bytes | None = None
+        self.eof = False
+        self._dur: float | None = None
+
+    @property
+    def duration(self) -> float:
+        if self._dur is None:
+            from .studio import probe_duration
+            self._dur = probe_duration(self.path) or 1e9
+        return self._dur
+
+    def _start(self, at: float):
+        self.close()
+        cmd = [audio_io.ffmpeg(), "-v", "error", "-nostdin", "-ss", f"{max(0.0, at):.3f}", "-i", self.path, "-an",
+               "-vf", f"fps={self.FPS},scale={self.w}:{self.h}:force_original_aspect_ratio=increase,"
+                      f"crop={self.w}:{self.h}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]
+        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=self.w * self.h * 12)
+        self.t_cur, self.eof = at - 1.0 / self.FPS, False
+        self._advance(1)
+
+    def _advance(self, n: int) -> None:
+        size = self.w * self.h * 3
+        for _ in range(max(0, n)):
+            buf = self.proc.stdout.read(size) if self.proc else b""
+            if len(buf) < size:
+                self.eof = True
+                return
+            self.frame = buf
+            self.t_cur += 1.0 / self.FPS
+
+    def frame_at(self, s: float) -> bytes | None:
+        """RGB bytes, top row first, of the picture at source time s."""
+        if self.loop and self.duration < 1e8:
+            s = s % self.duration
+        s = max(0.0, s)
+        back = self.proc is None or s < self.t_cur - 0.5 / self.FPS
+        far = self.proc is not None and s > self.t_cur + 2.0
+        wrapped = self.proc is not None and self.eof and self.loop and s < self.t_cur - 0.5
+        if back or far or wrapped:
+            self._start(s)
+        elif not self.eof:
+            self._advance(int(round((s - self.t_cur) * self.FPS)))
+        return self.frame
+
+    def close(self):
+        if self.proc is not None:
+            try:
+                self.proc.kill()
+                self.proc.stdout.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self.proc = None
+
+
 # ------------------------------------------------------------------------ GL drawing
 _COMPOSITE_FS = """#version 330 core
-uniform sampler2D sceneA; uniform sampler2D sceneB; uniform sampler2D cardA; uniform sampler2D cardB;
-uniform float mixAB; uniform float alphaA; uniform float alphaB; uniform float fade;
-uniform vec4 rectA; uniform vec4 rectB; uniform vec2 res;
+uniform sampler2D cardA; uniform sampler2D cardB;
+uniform float alphaA; uniform float alphaB; uniform float fade;
+uniform vec4 rectA; uniform vec4 rectB;
 out vec4 o;
+""" + _TRANS_GLSL + """
 vec3 overlayCard(vec3 col, sampler2D tex, vec4 rect, float a, vec2 uv){
     if (a <= 0.0) return col;
     vec2 q = (uv - rect.xy) / (rect.zw - rect.xy);
@@ -276,10 +373,10 @@ vec3 overlayCard(vec3 col, sampler2D tex, vec4 rect, float a, vec2 uv){
 }
 void main(){
     vec2 uv = gl_FragCoord.xy / res;
-    vec3 col = mix(textureLod(sceneA, uv, 0.0).rgb, textureLod(sceneB, uv, 0.0).rgb, mixAB);
+    vec3 col = (tP >= 0.9999) ? B(uv) : transitionColor(uv);
     col = overlayCard(col, cardA, rectA, alphaA, uv);
     col = overlayCard(col, cardB, rectB, alphaB, uv);
-    o = vec4(col * fade, 1.0);
+    o = vec4(clamp(col, 0.0, 1.0) * fade, 1.0);
 }
 """
 
@@ -446,6 +543,7 @@ class GLRenderer:
         self.key_tex = self.ctx.texture((256, 3), 1, bytes(256 * 3))
         self.programs: dict[str, tuple] = {}
         self._media: dict = {}
+        self.videos: dict[tuple, VideoSource] = {}
         self.cards: dict[str, tuple] = {}
         self.last_t = -1.0
         self.warnings: list[str] = []
@@ -472,6 +570,24 @@ class GLRenderer:
         if t != self.last_t:
             self.audio_tex.write(self.audio.at(t).tobytes())
             self.last_t = t
+
+    def draw_video(self, path: str, src_time: float, slot: int, loop: bool = False) -> bool:
+        """Put the video frame at `src_time` into scene `slot` (False if the file can't be read)."""
+        key = (path, loop)
+        vs = self.videos.get(key)
+        if vs is None:
+            vs = self.videos[key] = VideoSource(path, self.w, self.h, loop)
+        fr = vs.frame_at(src_time)
+        if fr is None:
+            self.warnings.append(f"Couldn't read the video {Path(path).name}; a visual is shown instead.") \
+                if f"v:{path}" not in self.warnings else None
+            return False
+        rgb = np.frombuffer(fr, np.uint8).reshape(self.h, self.w, 3)[::-1]
+        rgba = np.empty((self.h, self.w, 4), np.uint8)
+        rgba[..., :3] = rgb
+        rgba[..., 3] = 255
+        self.scene[slot][0].write(rgba.tobytes())
+        return True
 
     # -- textures and video clips a shader uses
     def media(self, kind: str, t: float):
@@ -535,7 +651,7 @@ class GLRenderer:
         return got
 
     def composite(self, mix_ab: float, card_a=None, alpha_a: float = 0.0, card_b=None, alpha_b: float = 0.0,
-                  fade: float = 1.0) -> bytes:
+                  fade: float = 1.0, trans: dict | None = None) -> bytes:
         self.out.use()
         self.ctx.viewport = (0, 0, self.w, self.h)
         self.scene[0][0].use(0)
@@ -544,9 +660,21 @@ class GLRenderer:
         tb, rb = card_b if card_b else (self.blank, (0, 0, 1, 1))
         ta.use(2)
         tb.use(3)
-        for i, n in enumerate(("sceneA", "sceneB", "cardA", "cardB")):
+        for i, n in enumerate(("texIn", "texOut", "cardA", "cardB")):
             _set(self.comp, n, i)
-        _set(self.comp, "mixAB", float(mix_ab))
+        tr = {"type": 0, "p": 1.0 - float(mix_ab), "angle": 0.0, "soft": 0.3, "inten": 1.0, "sens": 1.0,
+              "bass": 0.0, "pulse": 0.0, "time": 0.0, "bpm": 0.0}
+        tr.update(trans or {})
+        _set(self.comp, "tType", int(tr["type"]))
+        _set(self.comp, "tP", float(tr["p"]))
+        _set(self.comp, "tAngle", float(tr["angle"]))
+        _set(self.comp, "tSoft", float(tr["soft"]))
+        _set(self.comp, "tInt", float(tr["inten"]))
+        _set(self.comp, "tSens", float(tr["sens"]))
+        _set(self.comp, "tBass", float(tr["bass"]))
+        _set(self.comp, "tPulse", float(tr["pulse"]))
+        _set(self.comp, "tTime", float(tr["time"]))
+        _set(self.comp, "tBpm", float(tr["bpm"]))
         _set(self.comp, "alphaA", float(alpha_a if card_a else 0.0))
         _set(self.comp, "alphaB", float(alpha_b if card_b else 0.0))
         _set(self.comp, "fade", float(fade))
@@ -557,6 +685,8 @@ class GLRenderer:
         return self.out.read(components=3)
 
     def release(self):
+        for v in self.videos.values():
+            v.close()
         try:
             self.ctx.release()
         except Exception:  # noqa: BLE001
@@ -603,7 +733,7 @@ def frame_schedule(plan: MixPlan, total_seconds: float, sr: int = SR):
     return starts, wins
 
 
-def _state_at(t: float, starts, wins):
+def _state_at(t: float, starts, wins, raw: bool = False):
     """-> (outgoing_track, incoming_track, u) with u in 0..1; no blend when outgoing is None."""
     idx = 0
     for i, (fs, fe) in enumerate(wins, start=1):
@@ -614,7 +744,8 @@ def _state_at(t: float, starts, wins):
     if idx >= 1:
         fs, fe = wins[idx - 1]
         if t < fe:
-            return idx - 1, idx, _smooth((t - fs) / max(1e-6, fe - fs))
+            lin = (t - fs) / max(1e-6, fe - fs)
+            return idx - 1, idx, (lin if raw else _smooth(lin))
     return None, idx, 1.0
 
 
@@ -628,6 +759,19 @@ class Segment:
     artist: str = ""
     title: str = ""
     cover: str | None = None
+    video: str | None = None     # a video file supplies the picture instead of the visual
+    vstart: float = 0.0          # video time at `start` (when vcurve is not given)
+    vcurve: object = None        # tempo curve of the song (mixes): video time = vcurve.src_time(t - start)
+    vloop: bool = False          # loop a clip that is shorter than its segment
+    trans: dict | None = None    # this segment's own transition settings (into it); None = the default
+
+    def key(self) -> str:
+        return f"v:{self.uid}" if self.video else self.shader
+
+    def video_time(self, t: float) -> float:
+        if self.vcurve is not None:
+            return float(self.vcurve.src_time(max(0.0, t - self.start)))
+        return self.vstart + max(0.0, t - self.start)
 
 
 def _encode_cmd(w, h, fps, audio_path, out_path, vs):
@@ -640,30 +784,50 @@ def _encode_cmd(w, h, fps, audio_path, out_path, vs):
 
 class FrameComposer:
     """Draws the picture for any moment of a video made of segments (shared by the exporter and the
-    live previews)."""
+    live previews): the visual or video of each segment, the transitions between them and the card."""
 
     def __init__(self, segments: list[Segment], wins: list, seconds: float, vs: VideoSettings,
-                 shaders: ShaderLibrary):
-        self.segments, self.wins, self.seconds, self.vs = segments, wins, seconds, vs
+                 shaders: ShaderLibrary, bpm: float = 0.0):
+        self.segments, self.seconds, self.vs, self.bpm = segments, seconds, vs, float(bpm or 0.0)
         self.starts = [sg.start for sg in segments]
         self.shader_of = [shaders.get(sg.shader) or BUILTIN["builtin:plasma"] for sg in segments]
         self.single = vs.mode == "single"
         self.overlay = bool(vs.show_overlay) and prefs.overlay_enabled()     # per-video AND the app-wide switch
+        default = TransitionParams.from_dict(vs.transition)
+        self.tp: list[TransitionParams | None] = [None]
+        self.wins = []
+        for i, (fs, fe) in enumerate(wins, start=1):
+            own = segments[i].trans if i < len(segments) else None
+            p = _resolve_transition(TransitionParams.from_dict(own) if own else default, vs.seed, i)
+            self.tp.append(p)
+            if p.duration > 0:                       # the user's own length, centred on the automatic window
+                mid = 0.5 * (fs + fe)
+                fs, fe = mid - p.duration / 2, mid + p.duration / 2
+            self.wins.append((fs, fe))
+
+    def _scene(self, r: "GLRenderer", i: int, t: float, k: int, slot: int):
+        sg = self.segments[i]
+        if sg.video and r.draw_video(sg.video, sg.video_time(t), slot, sg.vloop):
+            return
+        r.draw_shader(self.shader_of[i], t if self.single else t - self.starts[i], k, slot)
 
     def draw(self, r: "GLRenderer", t: float, k: int) -> bytes:
         vs, segs = self.vs, self.segments
         h = r.h
         r.update_audio(t)
-        out_i, in_i, u = _state_at(t, self.starts, self.wins)
-
-        def stime(i):  # shader clock: global for "single", else time since that part started
-            return t if self.single else t - self.starts[i]
-
-        r.draw_shader(self.shader_of[in_i], stime(in_i), k, 0)
+        out_i, in_i, u = _state_at(t, self.starts, self.wins, raw=True)
+        us = _smooth(u)
+        self._scene(r, in_i, t, k, 0)
+        trans = None
         mixab = 0.0
-        if not self.single and out_i is not None and self.shader_of[out_i].id != self.shader_of[in_i].id:
-            r.draw_shader(self.shader_of[out_i], stime(out_i), k, 1)
-            mixab = 1.0 - u          # scene[1] fades out as the new one fades in
+        if out_i is not None and segs[out_i].key() != segs[in_i].key():
+            self._scene(r, out_i, t, k, 1)
+            p = self.tp[in_i]
+            bass = pulse = 0.0
+            if p.type in KIND_RHYTHM:
+                bass, pulse = audio_features(r.audio, t)
+            trans = {"type": GL_ID[p.type], "p": _ease(u, p.ease), "angle": math.radians(p.angle), "soft": p.softness,
+                     "inten": p.intensity, "sens": p.sensitivity, "bass": bass, "pulse": pulse, "time": t, "bpm": self.bpm}
         fade = min(1.0, t / 1.0) * min(1.0, max(0.0, (self.seconds - t) / 1.5))
         ca = cb = None
         aa = ab = 0.0
@@ -676,15 +840,15 @@ class FrameComposer:
             aa = min(1.0, t / 1.5)
             if out_i is not None:
                 # one after the other, so the two cards never overprint: old fades out, then new fades in
-                aa = _smooth(2.0 * u - 1.0)
+                aa = _smooth(2.0 * us - 1.0)
                 cb = card_for(out_i)
-                ab = _smooth(1.0 - 2.0 * u)
-        return r.composite(mixab, ca, aa, cb, ab, fade)
+                ab = _smooth(1.0 - 2.0 * us)
+        return r.composite(mixab, ca, aa, cb, ab, fade, trans)
 
 
 def render_segments(segments: list[Segment], wins: list, seconds: float, out_path, vs: VideoSettings,
                     shaders: ShaderLibrary, audio_path, texture_audio: np.ndarray | None = None,
-                    texture_sr: int = SR, progress=None, cancel=None) -> dict:
+                    texture_sr: int = SR, progress=None, cancel=None, bpm: float = 0.0) -> dict:
     """The shared video renderer used by mixes and by the visualization studio.
 
     wins[i-1] = (fade_start, fade_end) of the visual cross-fade into segments[i].
@@ -700,7 +864,7 @@ def render_segments(segments: list[Segment], wins: list, seconds: float, out_pat
             raise Cancelled("Cancelled")
 
     n_frames = int(math.ceil(seconds * vs.fps))
-    comp = FrameComposer(segments, wins, seconds, vs, shaders)
+    comp = FrameComposer(segments, wins, seconds, vs, shaders, bpm)
     r = GLRenderer(w, h, AudioTexture(texture_audio, texture_sr), fps=vs.fps)
     proc = None
     try:
@@ -732,7 +896,7 @@ def render_segments(segments: list[Segment], wins: list, seconds: float, out_pat
         r.release()
     say("done", 1.0)
     return {"video": str(out_path), "seconds": seconds, "frames": n_frames, "warnings": warnings,
-            "visuals": [s.name for s in comp.shader_of]}
+            "visuals": [(Path(sg.video).name if sg.video else s.name) for s, sg in zip(comp.shader_of, segments)]}
 
 
 def render_video(plan: MixPlan, lib: dict[str, SongAnalysis], paths: dict[str, str], out_path,
@@ -749,19 +913,40 @@ def render_video(plan: MixPlan, lib: dict[str, SongAnalysis], paths: dict[str, s
     if cancel and cancel():
         raise Cancelled("Cancelled")
     seconds = audio.shape[1] / SR
-    starts, wins = frame_schedule(plan, seconds)
-    chosen = resolve_assignments(plan, lib, vs, shaders)
     with tempfile.TemporaryDirectory(prefix="lmm_video_") as tmp:
         tmp = Path(tmp)
         wav = tmp / "mix.wav"
         audio_io.write_audio(wav, audio)
-        covers: dict[str, str | None] = {}
-        segs = []
-        for t, sid, st in zip(plan.tracks, chosen, starts):
-            if t.song_id not in covers:
-                p = tmp / f"cover_{len(covers)}.jpg"
-                covers[t.song_id] = str(p) if audio_io.extract_cover(paths[t.song_id], p) else None
-            an = lib[t.song_id]
-            segs.append(Segment(t.uid, st, sid, an.artist, an.title, covers[t.song_id]))
+        segs, wins = build_mix_segments(plan, lib, paths, vs, shaders, tmp, seconds)
         return render_segments(segs, wins, seconds, out_path, vs, shaders, wav, audio, SR,
-                               progress=lambda m, f: say(m, 0.3 + 0.7 * f), cancel=cancel)
+                               progress=lambda m, f: say(m, 0.3 + 0.7 * f), cancel=cancel, bpm=plan.master_bpm)
+
+
+def build_mix_segments(plan: MixPlan, lib: dict, paths: dict, vs: VideoSettings, shaders: ShaderLibrary,
+                       tmp_dir, seconds: float, covers: dict | None = None):
+    """-> (segments, fade windows) for a mix: each song's visual (or its own video, when the file is one)."""
+    starts, wins = frame_schedule(plan, seconds)
+    slots = timeline(plan)
+    chosen = resolve_assignments(plan, lib, vs, shaders)
+    covers = covers if covers is not None else {}
+    segs = []
+    for t, sid, st, slot in zip(plan.tracks, chosen, starts, slots):
+        path = paths.get(t.song_id)
+        if t.song_id not in covers:
+            cover = None
+            if path:
+                p = Path(tmp_dir) / f"cover_{len(covers)}.jpg"
+                try:
+                    cover = str(p) if audio_io.extract_cover(path, p) else None
+                except Exception:  # noqa: BLE001
+                    cover = None
+            covers[t.song_id] = cover
+        an = lib[t.song_id]
+        seg = Segment(t.uid, st, sid, an.artist, an.title, covers[t.song_id], trans=vs.transitions.get(t.uid))
+        if isinstance(sid, str) and sid.startswith("@clip:"):
+            seg.video, seg.vloop = sid[6:], True
+        elif vs.use_video and path and audio_io.is_video_file(path) and not (
+                vs.mode == "per_song" and vs.assignments.get(t.uid)):
+            seg.video, seg.vcurve = path, slot.curve          # the song's own video follows its tempo changes
+        segs.append(seg)
+    return segs, wins

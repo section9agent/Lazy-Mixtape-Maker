@@ -9,7 +9,7 @@ session, and export audio (WAV / MP3 320 / FLAC) and an **MP4 video** with Shade
 Everything runs on your computer. Nothing is uploaded and no internet is needed (the only optional
 online feature is fetching a shader by its Shadertoy link; pasting its code works offline).
 
-Runs on **Windows, macOS and Linux**. Reads **mp3, wav, flac and m4a**.
+Runs on **Windows, macOS and Linux**. Reads **mp3, wav, flac and m4a**, plus **video files** (mp4, mkv, mov, webm, avi, m4v) whose picture is used in video exports.
 
 ## Run it
 
@@ -49,7 +49,7 @@ Actions tab, or push a `v*` tag).
 
 ### Visualization Studio (videos for a mixtape you already made)
 
-*Tools → Visualization Studio* (Ctrl+Shift+V). Open any mp3 / wav / flac / m4a, then:
+*Tools → Visualization Studio* (Ctrl+Shift+V). Open any mp3 / wav / flac / m4a / video file, then:
 
 * **Mark where the songs change**: import a `.cue` sheet or a plain text track list (`0:00 Artist - Title` per line, including the list this app writes), or add markers by hand (double-click the waveform, **M**, right-click). Drag markers to move them; edit time, artist, title, cover image and visual per song.
 * **Choose the visuals**: one for the whole video, one per song (the *Visual* box), or let the app / random mix them per song. Visuals blend at each marker (*Visual blend* sets how long).

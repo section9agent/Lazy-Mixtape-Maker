@@ -22,10 +22,11 @@ from .panels import ThumbCache, fmt_time
 from .player import AudioPlayer
 from .shader_manager import ShaderManager
 from .tasks import APP, TaskMixin
+from .transition_editor import TransitionEditor
 from .workers import FrameWorker
 
 PROJECT_FILTER = "Visualization project (*.lmv)"
-AUDIO_FILTER = "Music (*.mp3 *.wav *.flac *.m4a)"
+AUDIO_FILTER = "Music and video (*.mp3 *.wav *.flac *.m4a *.mp4 *.mkv *.mov *.webm *.avi *.m4v)"
 CUE_FILTER = "Cue sheet or track list (*.cue *.txt *.tracklist);;All files (*)"
 COLORS = ["#4cc9f0", "#f2a541", "#7fc8a9", "#c77dff", "#ef476f", "#ffd166", "#06d6a0", "#b388eb"]
 
@@ -278,7 +279,11 @@ class StudioWindow(TaskMixin, QMainWindow):
         f = QFormLayout(box)
         self.f_time = QDoubleSpinBox(); self.f_time.setDecimals(1); self.f_time.setRange(0, 1e5); self.f_time.setSuffix(" s")
         self.f_artist = QLineEdit(); self.f_title = QLineEdit()
+        vrow = QHBoxLayout()
         self.f_visual = QComboBox()
+        self.b_clip = QPushButton("Video clip…")
+        self.b_clip.setToolTip("Show a video file (looped) instead of a visual for this song")
+        vrow.addWidget(self.f_visual, 1); vrow.addWidget(self.b_clip)
         cov = QHBoxLayout()
         self.f_cover = QLabel("none"); self.f_cover.setStyleSheet("color:#8b93a1")
         self.b_cover = QPushButton("Choose…"); self.b_nocover = QPushButton("Clear")
@@ -287,8 +292,16 @@ class StudioWindow(TaskMixin, QMainWindow):
         f.addRow("Artist", self.f_artist)
         f.addRow("Title", self.f_title)
         f.addRow("Cover art", cov)
-        f.addRow("Visual", self.f_visual)
+        f.addRow("Visual", vrow)
+        self.f_visual_note = QLabel()
+        self.f_visual_note.setWordWrap(True); self.f_visual_note.setStyleSheet("color:#8b93a1")
+        f.addRow(self.f_visual_note)
         rl.addWidget(box)
+        self.tbox = QGroupBox("Transition into this song")
+        tl_ = QVBoxLayout(self.tbox)
+        self.t_own = TransitionEditor(allow_inherit=True)
+        tl_.addWidget(self.t_own)
+        rl.addWidget(self.tbox)
         vb = QGroupBox("Video")
         vl = QVBoxLayout(vb)
         self.group = QButtonGroup(self)
@@ -323,11 +336,23 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.overlay_note = QLabel()
         self.overlay_note.setWordWrap(True); self.overlay_note.setStyleSheet("color:#ffb454")
         vl.addWidget(self.overlay_note)
+        self.use_video = QCheckBox("Use the file's own video as the picture")
+        self.use_video.setToolTip("Only for video files: show the video itself instead of a visual (a visual picked for a song still wins).")
+        vl.addWidget(self.use_video)
+        tb = QGroupBox("Default transition between songs")
+        tbl = QVBoxLayout(tb)
+        self.t_default = TransitionEditor()
+        tbl.addWidget(self.t_default)
+        vl.addWidget(tb)
         rl.addWidget(vb)
         rl.addStretch(1)
+        scroll_right = QScrollArea()
+        scroll_right.setWidgetResizable(True)
+        scroll_right.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll_right.setWidget(right)
 
         top = QSplitter(Qt.Orientation.Horizontal)
-        top.addWidget(left); top.addWidget(mid); top.addWidget(right)
+        top.addWidget(left); top.addWidget(mid); top.addWidget(scroll_right)
         top.setSizes([430, 520, 380])
 
         # bottom: timeline + library
@@ -380,6 +405,10 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.f_artist.editingFinished.connect(lambda: self._edit_sel(artist=self.f_artist.text()))
         self.f_title.editingFinished.connect(lambda: self._edit_sel(title=self.f_title.text()))
         self.f_visual.activated.connect(self._pick_visual)
+        self.b_clip.clicked.connect(self._pick_clip)
+        self.t_own.changed.connect(self._own_transition)
+        self.t_default.changed.connect(lambda: self._video(transition=self.t_default.value()))
+        self.use_video.toggled.connect(lambda c: None if self._busy else self._video(use_video=c))
         self.b_cover.clicked.connect(self._choose_cover)
         self.b_nocover.clicked.connect(lambda: self._edit_sel(cover=""))
         self.group.buttonToggled.connect(self._mode)
@@ -629,9 +658,43 @@ class StudioWindow(TaskMixin, QMainWindow):
         def fn(p):
             if p.video.mode != "per_song":
                 for m in p.markers:
-                    m.shader = resolved.get(m.uid, m.shader)
+                    if not st.has_source_video(p):        # a video file keeps its own picture unless you pick a visual
+                        m.shader = resolved.get(m.uid, m.shader)
                 p.video.mode = "per_song"
             p.find(uid).shader = sid
+        self._edit(fn)
+        self._after()
+
+    def _pick_clip(self):
+        if not self.sel:
+            return
+        p, _ = QFileDialog.getOpenFileName(self, "Video clip for this song", str(self.settings.value("last_dir", "")),
+                                           "Video clips (*.mp4 *.mkv *.mov *.webm *.avi *.m4v)")
+        if not p:
+            return
+        uid = self.sel
+        resolved = dict(st.resolved_visuals(self.project, self.shaders, self.project.duration))
+
+        def fn(pr):
+            if pr.video.mode != "per_song":
+                for m in pr.markers:
+                    if not st.has_source_video(pr):
+                        m.shader = resolved.get(m.uid, m.shader)
+                pr.video.mode = "per_song"
+            pr.find(uid).shader = "@clip:" + p
+        self._edit(fn)
+        self._after()
+
+    def _own_transition(self):
+        if self._busy or not self.sel:
+            return
+        uid, val = self.sel, self.t_own.value()
+
+        def fn(pr):
+            if val is None:
+                pr.video.transitions.pop(uid, None)
+            else:
+                pr.video.transitions[uid] = val
         self._edit(fn)
         self._after()
 
@@ -650,7 +713,8 @@ class StudioWindow(TaskMixin, QMainWindow):
 
             def fn(p):
                 for mk in p.markers:
-                    mk.shader = mk.shader or resolved.get(mk.uid, "")
+                    if not st.has_source_video(p):
+                        mk.shader = mk.shader or resolved.get(mk.uid, "")
                 p.video.mode = "per_song"
             self._edit(fn)
             self._after()
@@ -693,9 +757,10 @@ class StudioWindow(TaskMixin, QMainWindow):
                 return
             resolved = dict(st.resolved_visuals(p, self.shaders, p.duration)) if has else {}
             names = {s.id: s.name for s in self.shaders.all()}
+            labels = st.visual_labels(p, self.shaders) if has else {}
             self.table.setRowCount(len(p.markers))
             for r, m in enumerate(p.markers):
-                vals = [clock(m.time), m.artist, m.title, names.get(resolved.get(m.uid, ""), "")]
+                vals = [clock(m.time), m.artist, m.title, labels.get(m.uid) or names.get(resolved.get(m.uid, ""), "")]
                 for c, v in enumerate(vals):
                     self.table.setItem(r, c, QTableWidgetItem(v))
                 if m.uid == self.sel:
@@ -703,7 +768,7 @@ class StudioWindow(TaskMixin, QMainWindow):
             first = p.markers[0].time if p.markers else 0
             self.note.setText(f"Before the first marker the video shows “{p.file_title or p.name}”." if has and first > 1 else "")
             m = p.find(self.sel)
-            for w in (self.f_time, self.f_artist, self.f_title, self.f_visual, self.b_cover, self.b_nocover, self.b_del):
+            for w in (self.f_time, self.f_artist, self.f_title, self.f_visual, self.b_clip, self.b_cover, self.b_nocover, self.b_del):
                 w.setEnabled(m is not None)
             if rebuild_lists:
                 for combo in (self.f_visual, self.single):
@@ -717,6 +782,11 @@ class StudioWindow(TaskMixin, QMainWindow):
                 self.f_artist.setText(m.artist); self.f_title.setText(m.title)
                 self.f_cover.setText(Path(m.cover).name if m.cover else "none")
                 self.f_visual.setCurrentIndex(max(0, self.f_visual.findData(resolved.get(m.uid, ""))))
+                lab = labels.get(m.uid, "")
+                self.f_visual_note.setText(lab if lab.startswith(("Source video", "Clip:")) else "")
+                first = bool(p.markers) and p.markers[0].uid == m.uid
+                self.tbox.setEnabled(not first)
+                self.t_own.set_value(None if first else p.video.transitions.get(m.uid))
             else:
                 self.f_artist.clear(); self.f_title.clear(); self.f_cover.setText("none")
             v = p.video
@@ -725,6 +795,9 @@ class StudioWindow(TaskMixin, QMainWindow):
             self.single.setEnabled(v.mode == "single")
             self.reroll.setEnabled(v.mode in ("random", "auto"))
             self.blend.setValue(v.blend)
+            self.t_default.set_value(v.transition)
+            self.use_video.setVisible(st.has_source_video(p))
+            self.use_video.setChecked(v.use_video)
             self.res.setCurrentIndex(max(0, self.res.findData((v.width, v.height))))
             self.fps.setCurrentIndex(max(0, self.fps.findData(v.fps)))
             self.overlay.setChecked(v.show_overlay)

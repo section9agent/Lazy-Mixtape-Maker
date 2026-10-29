@@ -5,11 +5,13 @@ from PySide6.QtCore import QObject, QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox,
                                QHBoxLayout, QHeaderView, QLabel, QListWidget, QListWidgetItem, QPushButton,
-                               QRadioButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
+                               QFileDialog, QRadioButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
                                QWidget, QButtonGroup)
 
 from .. import cue as cuemod, effects as fxmod, plan as planmod
-from ..audio_io import SR
+from pathlib import Path
+
+from ..audio_io import SR, is_video_file
 from ..video import MODE_LABELS, MODES, resolve_assignments
 from .state import AppState
 from .workers import ThumbWorker
@@ -476,6 +478,11 @@ class TrackVisualTab(_Tab):
         lay.addWidget(self.head)
         self.combo = QComboBox()
         lay.addWidget(self.combo)
+        clip = QHBoxLayout()
+        self.b_clip = QPushButton("Use a video clip…")
+        self.b_clip.setToolTip("Show a video file (looped) instead of a visual while this song plays")
+        clip.addWidget(self.b_clip); clip.addStretch(1)
+        lay.addLayout(clip)
         self.pic = QLabel()
         self.pic.setFixedSize(256, 144)
         self.pic.setStyleSheet("background:#111;border-radius:6px")
@@ -485,6 +492,7 @@ class TrackVisualTab(_Tab):
         lay.addWidget(self.note)
         lay.addStretch(1)
         self.combo.currentIndexChanged.connect(self._choose)
+        self.b_clip.clicked.connect(self._choose_clip)
         thumbs.updated.connect(lambda _s: self.refresh())
         state.library_changed.connect(self.refresh)
         self._refresh()
@@ -510,8 +518,16 @@ class TrackVisualTab(_Tab):
         self.combo.setCurrentIndex(max(0, self.combo.findData(sid)))
         self.combo.blockSignals(False)
         self.head.setText(f"Visual while <b>{self.state.lib[t.song_id].title}</b> plays")
+        path = self.state.paths.get(t.song_id)
+        own_video = bool(self.state.video.use_video and path and is_video_file(path))
         sh = self.state.shaders.get(sid)
-        if sh:
+        if str(sid).startswith("@clip:"):
+            self.head.setText(self.head.text() + f"<br>Video clip: <b>{Path(sid[6:]).name}</b>")
+            self.pic.setText("video clip")
+        elif own_video:
+            self.head.setText(self.head.text() + "<br>This song is a video file, so its own video is shown.")
+            self.pic.setText("its own video")
+        elif sh:
             pm = self.thumbs.get(sh)
             if pm:
                 self.pic.setPixmap(pm)
@@ -522,17 +538,30 @@ class TrackVisualTab(_Tab):
                           f"Video mode is “{MODE_LABELS[mode]}”. Picking a visual here switches to “I choose per song” "
                           "and keeps everyone else's visual as it is now.")
 
+    def _choose_clip(self):
+        if self.idx() < 0:
+            return
+        p, _ = QFileDialog.getOpenFileName(self, "Video clip for this song", "",
+                                           "Video clips (*.mp4 *.mkv *.mov *.webm *.avi *.m4v)")
+        if p:
+            self._assign("@clip:" + p)
+
     def _choose(self, _):
         if self._busy or self.idx() < 0:
             return
-        sid = self.combo.currentData()
+        self._assign(self.combo.currentData())
+
+    def _assign(self, sid):
         res = self._resolved()
         i = self.idx()
         uids = [t.uid for t in self.state.plan.tracks]
+        vids = {t.uid for t in self.state.plan.tracks
+                if self.state.paths.get(t.song_id) and is_video_file(self.state.paths[t.song_id])}
 
         def fn(v):
             if v.mode != "per_song":
-                v.assignments = {u: s for u, s in zip(uids, res)}
+                # video songs keep showing their own video unless you pick something for them
+                v.assignments = {u: s for u, s in zip(uids, res) if u not in vids}
                 v.mode = "per_song"
             v.assignments[uids[i]] = sid
         self.state.edit_video(fn)

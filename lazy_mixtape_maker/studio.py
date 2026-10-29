@@ -113,11 +113,15 @@ class StudioProject:
         return p
 
 
+def has_source_video(p: "StudioProject") -> bool:
+    return bool(p.audio) and audio_io.is_video_file(p.audio)
+
+
 def new_project(audio_path, name: str = "") -> StudioProject:
     """Open an audio file: length, tags and a first marker at 0:00."""
     path = Path(audio_path)
     if path.suffix.lower() not in audio_io.AUDIO_EXTS:
-        raise audio_io.AudioError(f"{path.name} isn't an mp3, wav, flac or m4a file.")
+        raise audio_io.AudioError(f"{path.name} isn't an mp3, wav, flac, m4a or video file.")
     tags = audio_io.read_tags(path)
     p = StudioProject(audio=str(path.resolve()), audio_id=audio_io.file_id(path), duration=probe_duration(path),
                       name=name or path.stem, file_artist=tags["artist"], file_title=tags["title"])
@@ -346,10 +350,28 @@ def build_segments(p: StudioProject, shaders: ShaderLibrary, seconds: float,
         energies = segment_energies(mono, sr, bounds)
     ids = pick_visuals([m.uid for m in ms], energies, vs, shaders)
     segs = []
+    is_video = p.audio and audio_io.is_video_file(p.audio) and vs.use_video
     for m, t, sid in zip(ms, times, ids):
         cover = m.cover if m.cover and Path(m.cover).is_file() else (file_cover if m.uid == "open" else None)
-        segs.append(Segment(m.uid, t, sid, m.artist, m.title, cover))
+        seg = Segment(m.uid, t, sid, m.artist, m.title, cover, trans=vs.transitions.get(m.uid))
+        if isinstance(sid, str) and sid.startswith("@clip:"):
+            seg.video, seg.vloop = sid[6:], True
+        elif is_video and not (p.video.mode == "per_song" and m.shader):
+            seg.video, seg.vstart = p.audio, t            # the file's own picture, in sync with its sound
+        segs.append(seg)
     return segs, fade_windows(times, max(0.5, float(p.video.blend)))
+
+
+def visual_labels(p: StudioProject, shaders: ShaderLibrary) -> dict[str, str]:
+    """{marker uid: what the editor's list should say}: the source video, a clip, or "" (= the visual's name)."""
+    segs, _ = build_segments(p, shaders, p.duration or 1e9)
+    out = {}
+    for sg in segs:
+        if sg.video and sg.video == p.audio:
+            out[sg.uid] = "Source video"
+        elif sg.video:
+            out[sg.uid] = "Clip: " + Path(sg.video).name
+    return out
 
 
 def resolved_visuals(p: StudioProject, shaders: ShaderLibrary, seconds: float | None = None) -> list[tuple[str, str]]:

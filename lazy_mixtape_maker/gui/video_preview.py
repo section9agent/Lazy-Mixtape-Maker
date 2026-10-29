@@ -13,9 +13,8 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from .. import audio_io
 from ..plan import SR, timeline as build_timeline
-from ..video import AudioTexture, FrameComposer, Segment, frame_schedule, resolve_assignments
+from ..video import AudioTexture, FrameComposer, build_mix_segments
 from .panels import fmt_time
 from .workers import FrameWorker
 
@@ -104,23 +103,9 @@ class VideoPreviewWindow(QWidget):
             return None
         if self._comp is None:
             seconds = self._duration()
-            starts, wins = frame_schedule(st.plan, seconds)
-            chosen = resolve_assignments(st.plan, st.lib, st.video, st.shaders)
-            segs = []
-            for t, sid, s0 in zip(st.plan.tracks, chosen, starts):
-                if t.song_id not in self._covers:
-                    cover = None
-                    p = st.paths.get(t.song_id)
-                    if p:
-                        out = self.main.tmp / f"pv_cover_{len(self._covers)}.jpg"
-                        try:
-                            cover = str(out) if audio_io.extract_cover(p, out) else None
-                        except Exception:  # noqa: BLE001
-                            cover = None
-                    self._covers[t.song_id] = cover
-                an = st.lib[t.song_id]
-                segs.append(Segment(t.uid, s0, sid, an.artist, an.title, self._covers[t.song_id]))
-            self._comp = FrameComposer(segs, wins, seconds, st.video, st.shaders)
+            segs, wins = build_mix_segments(st.plan, st.lib, st.paths, st.video, st.shaders, self.main.tmp, seconds,
+                                            self._covers)
+            self._comp = FrameComposer(segs, wins, seconds, st.video, st.shaders, st.plan.master_bpm)
         return self._comp
 
     def _sync_audio(self):

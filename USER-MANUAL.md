@@ -4,7 +4,7 @@ Lazy Mixtape Maker turns a folder of your own songs into one seamless DJ-style m
 
 Everything happens on your computer. Nothing is uploaded, and no internet connection is needed. (The only optional online feature is downloading a visual from a Shadertoy link.)
 
-Works with **mp3, wav, flac and m4a** files.
+Works with **mp3, wav, flac and m4a** audio files, and with **video files** (mp4, mkv, mov, webm, avi, m4v), which are used for their sound and, in video exports, their picture.
 
 ---
 
@@ -204,6 +204,31 @@ Settings are in the **Visuals** tab at the bottom:
 - **Size**: 854×480, 1280×720, 1920×1080 or 1080×1080 (square). **Frame rate**: 24, 30 or 60 fps.
 - **Show cover art, artist and title** turns the lower-left card on or off for this video. See also [Settings](#13-settings).
 
+### Video files in a mix
+
+Add video files (mp4, mkv, mov, webm, avi, m4v) like any song. Their sound is mixed and beat-matched as usual, and **in the exported video the file's own picture is shown instead of a visual**, following the same tempo changes as the sound. Songs that are plain audio keep getting visuals, so you can mix both kinds. In **Video transitions → Default transition** the option **Use video files as the picture** turns this off. A visual you pick for a video song in the **Visual** tab wins over its video. In the **Visual** tab, **Use a video clip…** shows any video file (looped) while a song plays.
+
+### Video transitions
+
+The **Video transitions** tab chooses how the picture changes at each song change. There are 20:
+
+- **Classic (12):** crossfade, dip to black, dip to white, wipe, push / slide, circle iris, clock wipe, zoom through, noise dissolve, pixelate, blinds, swirl.
+- **♪ Rhythm (8):** beat zoom, beat flash, beat shake + RGB split, glitch slices, bass ripple, beat strobe, beat mosaic, kick spin. These measure the kick and bass of your music at every frame and pulse with it.
+- **🎲 Random** (all 20, classic only, or rhythm only) picks a different one at every change.
+
+Every transition has the same controls (the ones that don't apply to the chosen transition are greyed out):
+
+| Control | What it does |
+|---|---|
+| **Length** | Seconds the transition takes. *Automatic* follows the audio blend (mixes) or the *Visual blend* setting (studio). |
+| **Angle** | Direction of wipes, pushes and blinds; start angle of the clock wipe. |
+| **Softness** | How soft the edge of a wipe, iris, clock wipe or dissolve is. |
+| **Intensity** | Strength: zoom amount, pixel size, swirl, shake, glitch, flash. |
+| **Beat sensitivity** | How strongly the ♪ transitions react to the music (0 = ignore it). |
+| **Easing** | Smooth, linear, ease in or ease out. |
+
+The left side sets the **default for every song change**. Select a song and use the right side to give **its own transition** different settings (untick *Use the default transition*). Watch it live in **Preview video**.
+
 Video export needs a graphics card or driver with **OpenGL 3.3**. Rendering takes longer than the length of the mix on slower computers, and you can cancel at any time.
 
 ---
@@ -247,7 +272,7 @@ Textures and video clips: a channel can be set to **Texture image…** or **Vide
 Already have a mixtape (made in another program, or by a DJ)? The studio makes a video for any audio file. Open it from **Tools → Visualization Studio** (Ctrl+Shift+V) or the toolbar.
 
 ### Steps
-1. **Open audio** (Ctrl+O): choose an mp3, wav, flac or m4a. The waveform appears, and the file's tags give the first marker. If a `.cue` file with the same name sits next to the audio, the app offers to use it.
+1. **Open audio** (Ctrl+O): choose an mp3, wav, flac, m4a or a video file. The waveform appears, and the file's tags give the first marker. If a `.cue` file with the same name sits next to the audio, the app offers to use it.
 2. **Mark where the songs change.** Choose any of:
    - **Import cue sheet** (Ctrl+I): a `.cue` file, or a plain text list with a time at the start of each line, such as `12:34  Artist - Title` or `[1:02:03] Artist – Title`. The track list this app writes works too.
    - **Add markers by hand:** double-click the waveform, right-click it, press **M** at the playhead, or use **Add marker here**.
@@ -264,7 +289,9 @@ Already have a mixtape (made in another program, or by a DJ)? The studio makes a
 Click to move the playhead. The red line is the playhead; coloured flags are the song markers. Zoom with **−**, **+**, **Fit**.
 
 ### Video settings
-- **Visual blend**: how many seconds the visuals take to blend at each song change.
+- **Visual blend**: how many seconds the visuals take to blend at each song change (the *Length* of a transition set to Automatic).
+- **Default transition between songs**: one of the 20 transitions with all its controls (see [Video transitions](#video-transitions)). Select a song to give *its* transition different settings under **Transition into this song**.
+- **Video files**: if the file you opened is a video, its own picture is shown, in sync with its sound (**Use the file's own video as the picture** turns it off). Pick a visual for a song to replace it, or **Video clip…** to show another video file (looped) for that song.
 - **Size**, **Frame rate**, **Pick different random visuals**.
 - **Show cover art, artist and title** (lower left) can be turned off for this project. Each marker can have its own cover image; markers without one get a plain coloured tile with the song's initial.
 - Before the first marker, the video shows the audio file's own title.
