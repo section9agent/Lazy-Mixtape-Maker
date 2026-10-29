@@ -45,8 +45,10 @@ class StudioTimeline(QWidget):
     drag_end = Signal()
     add_at = Signal(float)
     delete = Signal(str)
+    clip_moved = Signal(str, float)      # (marker uid, new start time of its video)
 
-    H = 170
+    WH = 170                             # height of the waveform part
+    H = 198                              # plus a lane for the videos placed on songs
 
     def __init__(self):
         super().__init__()
@@ -57,6 +59,8 @@ class StudioTimeline(QWidget):
         self.playhead = 0.0
         self.pps = 4.0
         self._drag = ""
+        self.clips: list[dict] = []
+        self._cdrag: tuple[str, float] | None = None
         self.setFixedHeight(self.H)
         self.setMouseTracking(True)
         self._resize()
@@ -80,6 +84,11 @@ class StudioTimeline(QWidget):
         self.markers, self.sel = markers, sel
         self.update()
 
+    def set_clips(self, clips):
+        """clips: [{"uid", "start", "end", "label", "color"}] - the videos placed on songs."""
+        self.clips = clips
+        self.update()
+
     def set_playhead(self, t):
         self.playhead = t
         self.update()
@@ -89,6 +98,14 @@ class StudioTimeline(QWidget):
 
     def _t(self, x):
         return min(max(0.0, (x - 20) / self.pps), self.duration or 0.0)
+
+    def _clip_at(self, x, y):
+        if y < self.WH + 2:
+            return None
+        for c in reversed(self.clips):
+            if self._x(c["start"]) <= x <= self._x(c["end"]):
+                return c
+        return None
 
     def _marker_at(self, x):
         best, bd = "", 7
@@ -103,14 +120,14 @@ class StudioTimeline(QWidget):
         p = QPainter(self)
         r = ev.rect()
         p.fillRect(r, QColor("#14161c"))
-        mid = self.H / 2 + 8
+        mid = self.WH / 2 + 8
         if self.peaks is not None and self.duration > 0:
             n = len(self.peaks)
             p.setPen(QPen(QColor("#4a6fa5")))
             for x in range(max(20, r.left()), min(self.width() - 20, r.right() + 1)):
                 i = int(min(n - 1, max(0, (x - 20) / max(1.0, self.duration * self.pps) * n)))
                 lo, hi = self.peaks[i]
-                p.drawLine(x, int(mid - hi * (self.H / 2 - 24)), x, int(mid - lo * (self.H / 2 - 24)) + 1)
+                p.drawLine(x, int(mid - hi * (self.WH / 2 - 24)), x, int(mid - lo * (self.WH / 2 - 24)) + 1)
         # ruler
         step = next((s for s in (1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600) if s * self.pps >= 70), 3600)
         p.setPen(QPen(QColor("#8b93a1")))
@@ -121,6 +138,23 @@ class StudioTimeline(QWidget):
                 p.drawLine(x, 0, x, 6)
                 p.drawText(x + 3, 14, clock(t))
             t += step
+        # videos placed on songs (drag one to line it up with the music)
+        lane = QRectF(0, self.WH + 2, self.width(), self.H - self.WH - 4)
+        p.fillRect(lane, QColor("#101218"))
+        for c in self.clips:
+            x0, x1 = self._x(c["start"]), self._x(c["end"])
+            if x1 < r.left() - 20 or x0 > r.right() + 20:
+                continue
+            col = QColor(c["color"])
+            bar = QRectF(x0, lane.top() + 2, max(4.0, x1 - x0), lane.height() - 4)
+            sel = c["uid"] == self.sel
+            p.fillRect(bar, QColor(col.red(), col.green(), col.blue(), 235 if sel else 150))
+            p.setPen(QPen(QColor("#ffffff") if sel else QColor(0, 0, 0, 120), 2 if sel else 1))
+            p.drawRect(bar)
+            p.setPen(QColor("#000"))
+            fm = p.fontMetrics()
+            p.drawText(bar.adjusted(5, 0, -3, 0), Qt.AlignmentFlag.AlignVCenter,
+                       fm.elidedText("▶ " + c["label"], Qt.TextElideMode.ElideRight, max(10, int(bar.width()) - 8)))
         # markers
         for i, m in enumerate(self.markers):
             x = int(self._x(m.time))
@@ -151,8 +185,13 @@ class StudioTimeline(QWidget):
             return
         x = e.position().x()
         uid = self._marker_at(x)
+        clip = None if uid else self._clip_at(x, e.position().y())
         if e.button() == Qt.MouseButton.LeftButton:
-            if uid:
+            if clip:
+                self.selected.emit(clip["uid"])
+                self._cdrag = (clip["uid"], (x - 20) / self.pps - clip["start"])
+                self.drag_begin.emit()
+            elif uid:
                 self.selected.emit(uid)
                 self._drag = uid
                 self.drag_begin.emit()
@@ -170,18 +209,26 @@ class StudioTimeline(QWidget):
 
     def mouseMoveEvent(self, e):
         x = e.position().x()
-        if self._drag:
+        if self._cdrag:
+            uid, grab = self._cdrag
+            self.clip_moved.emit(uid, round((x - 20) / self.pps - grab, 3))
+        elif self._drag:
             self.dragged.emit(self._drag, round(self._t(x), 2))
         else:
-            self.setCursor(Qt.CursorShape.SizeHorCursor if self._marker_at(x) else Qt.CursorShape.ArrowCursor)
+            over_clip = self._clip_at(x, e.position().y()) is not None and not self._marker_at(x)
+            self.setCursor(Qt.CursorShape.SizeHorCursor if (self._marker_at(x) or over_clip) else Qt.CursorShape.ArrowCursor)
 
     def mouseReleaseEvent(self, e):
-        if self._drag:
+        if self._cdrag:
+            self._cdrag = None
+            self.drag_end.emit()
+        elif self._drag:
             self._drag = ""
             self.drag_end.emit()
 
     def mouseDoubleClickEvent(self, e):
-        if e.button() == Qt.MouseButton.LeftButton and self.duration > 0 and not self._marker_at(e.position().x()):
+        if (e.button() == Qt.MouseButton.LeftButton and self.duration > 0 and not self._marker_at(e.position().x())
+                and self._clip_at(e.position().x(), e.position().y()) is None):
             self.add_at.emit(self._t(e.position().x()))
 
 
@@ -196,6 +243,7 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.hist = st.StudioHistory(st.StudioProject())
         self.file: Path | None = None
         self.dirty = False
+        self._clip_notes: dict[str, str] = {}
         self.sel = ""
         self.peaks = None
         self.mono = None
@@ -281,8 +329,8 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.f_artist = QLineEdit(); self.f_title = QLineEdit()
         vrow = QHBoxLayout()
         self.f_visual = QComboBox()
-        self.b_clip = QPushButton("Video clip…")
-        self.b_clip.setToolTip("Show a video file (looped) instead of a visual for this song")
+        self.b_clip = QPushButton("Import video…")
+        self.b_clip.setToolTip("Put a video on this song instead of a visual. It is lined up with the music by sound; you can then move it and change its speed.")
         vrow.addWidget(self.f_visual, 1); vrow.addWidget(self.b_clip)
         cov = QHBoxLayout()
         self.f_cover = QLabel("none"); self.f_cover.setStyleSheet("color:#8b93a1")
@@ -297,6 +345,53 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.f_visual_note.setWordWrap(True); self.f_visual_note.setStyleSheet("color:#8b93a1")
         f.addRow(self.f_visual_note)
         rl.addWidget(box)
+        self.cbox = QGroupBox("Video on this song")
+        cl = QVBoxLayout(self.cbox)
+        self.c_name = QLabel()
+        self.c_name.setWordWrap(True)
+        cl.addWidget(self.c_name)
+        crow = QHBoxLayout()
+        self.b_csync = QPushButton("Line up by sound")
+        self.b_csync.setToolTip("Compare the video's sound with this song's music and place it where they match best")
+        self.b_creplace = QPushButton("Replace…")
+        self.b_cremove = QPushButton("Remove")
+        crow.addWidget(self.b_csync); crow.addWidget(self.b_creplace); crow.addWidget(self.b_cremove)
+        cl.addLayout(crow)
+        self.c_note = QLabel()
+        self.c_note.setWordWrap(True); self.c_note.setStyleSheet("color:#8b93a1")
+        cl.addWidget(self.c_note)
+        cf = QFormLayout()
+        self.c_start = QDoubleSpinBox(); self.c_start.setDecimals(3); self.c_start.setSingleStep(0.001)
+        self.c_start.setRange(-36000, 360000); self.c_start.setSuffix(" s")
+        self.c_start.setToolTip("Where the video's first frame plays on the timeline. Drag the video bar under the waveform, "
+                                "or type a time to the millisecond.")
+        cf.addRow("Video starts at", self.c_start)
+        nudge = QHBoxLayout()
+        self.c_nudges = []
+        for label, ds in (("−100 ms", -0.1), ("−10 ms", -0.01), ("−1 ms", -0.001), ("+1 ms", 0.001), ("+10 ms", 0.01), ("+100 ms", 0.1)):
+            b = QPushButton(label); b.setProperty("ds", ds); b.setMinimumWidth(48)
+            nudge.addWidget(b); self.c_nudges.append(b)
+        cf.addRow(nudge)
+        self.c_speed = QDoubleSpinBox(); self.c_speed.setDecimals(4); self.c_speed.setSingleStep(0.001)
+        self.c_speed.setRange(0.1, 4.0); self.c_speed.setValue(1.0); self.c_speed.setSuffix(" ×")
+        self.c_speed.setToolTip("Playback speed of the video (1.0000 = normal). Use this when the video drifts out of sync.")
+        cf.addRow("Speed", self.c_speed)
+        snudge = QHBoxLayout()
+        self.c_snudges = []
+        for label, ds in (("−0.01", -0.01), ("−0.001", -0.001), ("+0.001", 0.001), ("+0.01", 0.01)):
+            b = QPushButton(label); b.setProperty("ds", ds); b.setMinimumWidth(48)
+            snudge.addWidget(b); self.c_snudges.append(b)
+        self.b_cspeed1 = QPushButton("1.0 ×")
+        snudge.addWidget(self.b_cspeed1)
+        cf.addRow(snudge)
+        self.c_loop = QCheckBox("Loop the video if it is shorter than the song")
+        cf.addRow(self.c_loop)
+        cl.addLayout(cf)
+        mute = QLabel("The video's own sound is muted: only your music is heard.")
+        mute.setStyleSheet("color:#8b93a1")
+        cl.addWidget(mute)
+        self.cbox.setVisible(False)
+        rl.addWidget(self.cbox)
         self.tbox = QGroupBox("Transition into this song")
         tl_ = QVBoxLayout(self.tbox)
         self.t_own = TransitionEditor(allow_inherit=True)
@@ -405,7 +500,19 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.f_artist.editingFinished.connect(lambda: self._edit_sel(artist=self.f_artist.text()))
         self.f_title.editingFinished.connect(lambda: self._edit_sel(title=self.f_title.text()))
         self.f_visual.activated.connect(self._pick_visual)
-        self.b_clip.clicked.connect(self._pick_clip)
+        self.b_clip.clicked.connect(self._add_video)
+        self.b_creplace.clicked.connect(self._add_video)
+        self.b_cremove.clicked.connect(self._remove_video)
+        self.b_csync.clicked.connect(self._sync_video)
+        self.c_start.editingFinished.connect(lambda: self._clip_set(start=self.c_start.value()))
+        self.c_speed.editingFinished.connect(lambda: self._clip_set(speed=self.c_speed.value()))
+        self.c_loop.toggled.connect(lambda c: self._clip_set(loop=c))
+        for b in self.c_nudges:
+            b.clicked.connect(lambda _=False, b=b: self._clip_set(start=round(self.c_start.value() + b.property("ds"), 3)))
+        for b in self.c_snudges:
+            b.clicked.connect(lambda _=False, b=b: self._clip_set(speed=round(self.c_speed.value() + b.property("ds"), 4)))
+        self.b_cspeed1.clicked.connect(lambda: self._clip_set(speed=1.0))
+        self.timeline.clip_moved.connect(self._clip_dragged)
         self.t_own.changed.connect(self._own_transition)
         self.t_default.changed.connect(lambda: self._video(transition=self.t_default.value()))
         self.use_video.toggled.connect(lambda c: None if self._busy else self._video(use_video=c))
@@ -662,28 +769,89 @@ class StudioWindow(TaskMixin, QMainWindow):
                         m.shader = resolved.get(m.uid, m.shader)
                 p.video.mode = "per_song"
             p.find(uid).shader = sid
+            p.clear_clip(uid)                 # a visual picked here replaces the video
         self._edit(fn)
         self._after()
 
-    def _pick_clip(self):
+    def _add_video(self):
+        """Put a video on the selected song, then line it up with that song's music by sound."""
         if not self.sel:
             return
-        p, _ = QFileDialog.getOpenFileName(self, "Video clip for this song", str(self.settings.value("last_dir", "")),
-                                           "Video clips (*.mp4 *.mkv *.mov *.webm *.avi *.m4v)")
-        if not p:
+        path, _ = QFileDialog.getOpenFileName(self, "Video for this song", str(self.settings.value("last_dir", "")),
+                                              "Video (*.mp4 *.mkv *.mov *.webm *.avi *.m4v)")
+        if not path:
+            return
+        self.settings.setValue("last_dir", str(Path(path).parent))
+        uid = self.sel
+        self._edit(lambda p: p.set_clip(uid, path))
+        self._after()
+        self._sync_video()
+
+    def _remove_video(self):
+        if not self.sel:
             return
         uid = self.sel
-        resolved = dict(st.resolved_visuals(self.project, self.shaders, self.project.duration))
-
-        def fn(pr):
-            if pr.video.mode != "per_song":
-                for m in pr.markers:
-                    if not st.has_source_video(pr):
-                        m.shader = resolved.get(m.uid, m.shader)
-                pr.video.mode = "per_song"
-            pr.find(uid).shader = "@clip:" + p
-        self._edit(fn)
+        self._edit(lambda p: p.clear_clip(uid))
+        self._clip_notes.pop(uid, None)
         self._after()
+
+    def _sync_video(self):
+        m = self.project.find(self.sel)
+        if not m or not m.clip.get("path"):
+            return
+        uid, path, audio = m.uid, m.clip["path"], self.project.audio
+        t0, t1 = st.segment_bounds(self.project, uid)
+
+        def job(cb, cancel):
+            from .. import videosync
+            return videosync.estimate_offset(audio, t0, t1, path, cb)
+
+        def done(res):
+            self._clip_notes[uid] = res.note
+            if res.found and self.project.find(uid) and self.project.find(uid).clip.get("path") == path:
+                self._edit(lambda p: p.set_clip(uid, start=t0 + res.offset))
+            self._after()
+
+        self.run_task("Lining the video up with the music…", job, done)
+
+    def _clip_set(self, **fields):
+        if self._busy or not self.sel:
+            return
+        m = self.project.find(self.sel)
+        if not m or not m.clip:
+            return
+        if all(abs(float(m.clip.get(k, 0)) - float(v)) < 1e-9 for k, v in fields.items()):
+            return
+        uid = self.sel
+        self._edit(lambda p: p.set_clip(uid, **fields))
+        self._after()
+
+    def _clip_dragged(self, uid, start):
+        m = self.project.find(uid)
+        if not m or not m.clip:
+            return
+        m.clip["start"] = float(start)
+        self.dirty = True
+        self._preview_dirty = True
+        self._comp = None
+        self._push_clips()
+        self._busy = True
+        self.c_start.setValue(float(start))
+        self._busy = False
+
+    def _push_clips(self):
+        p = self.project
+        out = []
+        for i, m in enumerate(p.markers):
+            ext = st.clip_extent(m) if m.clip.get("path") else None
+            if not ext:
+                continue
+            start, end = ext
+            if m.clip.get("loop") or end <= start:
+                end = max(end, st.segment_bounds(p, m.uid)[1])
+            out.append({"uid": m.uid, "start": start, "end": end, "label": Path(m.clip["path"]).name,
+                        "color": COLORS[i % len(COLORS)]})
+        self.timeline.set_clips(out)
 
     def _own_transition(self):
         if self._busy or not self.sel:
@@ -753,6 +921,7 @@ class StudioWindow(TaskMixin, QMainWindow):
         try:
             has = self._has_audio()
             self.timeline.set_markers(p.markers, self.sel)
+            self._push_clips()
             if light:
                 return
             resolved = dict(st.resolved_visuals(p, self.shaders, p.duration)) if has else {}
@@ -783,11 +952,21 @@ class StudioWindow(TaskMixin, QMainWindow):
                 self.f_cover.setText(Path(m.cover).name if m.cover else "none")
                 self.f_visual.setCurrentIndex(max(0, self.f_visual.findData(resolved.get(m.uid, ""))))
                 lab = labels.get(m.uid, "")
-                self.f_visual_note.setText(lab if lab.startswith(("Source video", "Clip:")) else "")
+                has_clip = bool(m.clip.get("path"))
+                self.cbox.setVisible(has_clip)
+                if has_clip:
+                    self.c_name.setText("<b>" + Path(m.clip["path"]).name + "</b>"
+                                        + ("" if Path(m.clip["path"]).is_file() else "  - file not found"))
+                    self.c_start.setValue(float(m.clip.get("start", m.time)))
+                    self.c_speed.setValue(float(m.clip.get("speed", 1.0)))
+                    self.c_loop.setChecked(bool(m.clip.get("loop")))
+                    self.c_note.setText(self._clip_notes.get(m.uid, ""))
+                self.f_visual_note.setText(lab if lab.startswith(("Source video", "Clip:", "Video:")) else "")
                 first = bool(p.markers) and p.markers[0].uid == m.uid
                 self.tbox.setEnabled(not first)
                 self.t_own.set_value(None if first else p.video.transitions.get(m.uid))
             else:
+                self.cbox.setVisible(False)
                 self.f_artist.clear(); self.f_title.clear(); self.f_cover.setText("none")
             v = p.video
             self.radios[v.mode].setChecked(True)

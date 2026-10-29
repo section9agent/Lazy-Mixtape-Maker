@@ -41,6 +41,9 @@ class Marker:
     cover: str = ""                  # path of an image for this song's card ("" = none)
     shader: str = ""                 # this song's visual in "I choose per song" mode ("" = not chosen yet)
     uid: str = field(default_factory=_uid)
+    # A video placed on the timeline instead of a visual: {"path", "start" (timeline seconds where the video's
+    # first frame plays), "speed" (1.0 = normal), "loop"}. Its own sound is never used.
+    clip: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -87,10 +90,34 @@ class StudioProject:
         if not m:
             return
         for k, v in fields.items():
-            if k not in ("time", "artist", "title", "cover", "shader"):
+            if k not in ("time", "artist", "title", "cover", "shader", "clip"):
                 raise KeyError(k)
             setattr(m, k, self.clamp(v) if k == "time" else v)
         self._sort()
+
+    def set_clip(self, uid: str, path: str | None = None, **fields) -> None:
+        """Put a video on a song (path given), or change its start / speed / loop (path omitted)."""
+        m = self.find(uid)
+        if not m:
+            return
+        if path is not None:
+            m.clip = {"path": str(path), "start": float(m.time), "speed": 1.0, "loop": False}
+        if not m.clip:
+            return
+        for k, v in fields.items():
+            if k == "start":
+                m.clip["start"] = float(v)
+            elif k == "speed":
+                m.clip["speed"] = float(min(4.0, max(0.1, v)))
+            elif k == "loop":
+                m.clip["loop"] = bool(v)
+            else:
+                raise KeyError(k)
+
+    def clear_clip(self, uid: str) -> None:
+        m = self.find(uid)
+        if m:
+            m.clip = {}
 
     def set_markers(self, rows: list[dict]) -> None:
         """Replace all markers (used when a cue sheet is imported)."""
@@ -111,6 +138,49 @@ class StudioProject:
         p.video = VideoSettings.from_dict(d.get("video"))
         p._sort()
         return p
+
+
+_durations: dict[str, float] = {}
+
+
+def _clip_duration(path: str) -> float:
+    if path not in _durations:
+        _durations[path] = probe_duration(path)
+    return _durations[path]
+
+
+def clip_extent(m: "Marker") -> tuple[float, float] | None:
+    """(start, end) on the timeline of the video placed on a song, or None. A looping clip has no end of its own."""
+    if not (m.clip and m.clip.get("path")):
+        return None
+    d = _clip_duration(m.clip["path"])
+    sp = float(m.clip.get("speed", 1.0)) or 1.0
+    st = float(m.clip.get("start", m.time))
+    return st, st + (d / sp if d > 0 else 0.0)
+
+
+def segment_bounds(p: "StudioProject", uid: str) -> tuple[float, float]:
+    ms = sorted(p.markers, key=lambda m: m.time)
+    for i, m in enumerate(ms):
+        if m.uid == uid:
+            return m.time, (ms[i + 1].time if i + 1 < len(ms) else (p.duration or m.time + 60.0))
+    return 0.0, p.duration
+
+
+def auto_sync_clip(p: "StudioProject", uid: str, progress=None):
+    """Best-guess the start of the video placed on a song by comparing its sound with the music of that song.
+    Updates the project's clip start when a match is found. Returns the videosync.SyncResult."""
+    from . import videosync
+
+    m = p.find(uid)
+    if not (m and m.clip.get("path")):
+        raise ValueError("That song has no video.")
+    t0, t1 = segment_bounds(p, uid)
+    res = videosync.estimate_offset(p.audio, t0, t1, m.clip["path"], progress)
+    if res.found:
+        # the video's own speed matters little for the start: its first frame sits `offset` after the segment start
+        m.clip["start"] = float(t0 + res.offset)
+    return res
 
 
 def has_source_video(p: "StudioProject") -> bool:
@@ -354,7 +424,11 @@ def build_segments(p: StudioProject, shaders: ShaderLibrary, seconds: float,
     for m, t, sid in zip(ms, times, ids):
         cover = m.cover if m.cover and Path(m.cover).is_file() else (file_cover if m.uid == "open" else None)
         seg = Segment(m.uid, t, sid, m.artist, m.title, cover, trans=vs.transitions.get(m.uid))
-        if isinstance(sid, str) and sid.startswith("@clip:"):
+        if m.clip and m.clip.get("path"):
+            sp = float(m.clip.get("speed", 1.0)) or 1.0
+            seg.video, seg.vspeed, seg.vloop = m.clip["path"], sp, bool(m.clip.get("loop"))
+            seg.vstart = (t - float(m.clip.get("start", t))) * sp      # where in the video this song begins
+        elif isinstance(sid, str) and sid.startswith("@clip:"):
             seg.video, seg.vloop = sid[6:], True
         elif is_video and not (p.video.mode == "per_song" and m.shader):
             seg.video, seg.vstart = p.audio, t            # the file's own picture, in sync with its sound
@@ -367,7 +441,10 @@ def visual_labels(p: StudioProject, shaders: ShaderLibrary) -> dict[str, str]:
     segs, _ = build_segments(p, shaders, p.duration or 1e9)
     out = {}
     for sg in segs:
-        if sg.video and sg.video == p.audio:
+        m = p.find(sg.uid)
+        if m is not None and m.clip and sg.video == m.clip.get("path"):
+            out[sg.uid] = "Video: " + Path(sg.video).name
+        elif sg.video and sg.video == p.audio:
             out[sg.uid] = "Source video"
         elif sg.video:
             out[sg.uid] = "Clip: " + Path(sg.video).name

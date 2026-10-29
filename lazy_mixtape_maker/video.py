@@ -762,6 +762,7 @@ class Segment:
     video: str | None = None     # a video file supplies the picture instead of the visual
     vstart: float = 0.0          # video time at `start` (when vcurve is not given)
     vcurve: object = None        # tempo curve of the song (mixes): video time = vcurve.src_time(t - start)
+    vspeed: float = 1.0          # playback speed of the video (studio clips)
     vloop: bool = False          # loop a clip that is shorter than its segment
     trans: dict | None = None    # this segment's own transition settings (into it); None = the default
 
@@ -771,7 +772,7 @@ class Segment:
     def video_time(self, t: float) -> float:
         if self.vcurve is not None:
             return float(self.vcurve.src_time(max(0.0, t - self.start)))
-        return self.vstart + max(0.0, t - self.start)
+        return self.vstart + (t - self.start) * self.vspeed
 
 
 def _encode_cmd(w, h, fps, audio_path, out_path, vs):

@@ -225,3 +225,184 @@ def test_gui_editors(tmp_path, monkeypatch):
     assert w.state.video.transition["type"] == "kick_spin"
     w.state.dirty = False
     w.close()
+
+
+# ------------------------------------------------------------------------- video on the studio timeline
+def _aperiodic_music(seed, secs, sr=44100):
+    rng = np.random.default_rng(seed)
+    y = np.zeros(int(secs * sr), np.float32)
+    t = np.arange(int(0.5 * sr)) / sr
+    for b in np.arange(0, secs - 0.5, 0.25):
+        i = int(b * sr)
+        y[i:i + len(t)] += (np.sin(2 * np.pi * 110 * 2 ** (rng.integers(0, 24) / 12) * t)
+                            * np.exp(-t * rng.uniform(3, 12)) * rng.uniform(.2, .7)).astype(np.float32)
+        if rng.random() < .6:
+            y[i:i + len(t)] += (np.sin(2 * np.pi * (50 + 80 * np.exp(-t * 30)) * t) * np.exp(-t * 14) * .8).astype(np.float32)
+        if rng.random() < .5:
+            y[i:i + 2000] += rng.uniform(-.3, .3, 2000).astype(np.float32) * np.exp(-np.arange(2000) / 300)
+    y = np.clip(y, -1, 1)
+    return np.stack([y, y])
+
+
+def test_auto_sync_finds_where_the_video_belongs(tmp_path):
+    from lazy_mixtape_maker import videosync
+    sr = 44100
+    x = _aperiodic_music(1, 50)
+    song = tmp_path / "song.wav"
+    audio_io.write_audio(song, x)
+
+    def clip_from(name, seg):
+        w = tmp_path / (name + ".wav")
+        audio_io.write_audio(w, seg)
+        make_video(tmp_path / (name + ".mp4"), w, "red")
+        return tmp_path / (name + ".mp4")
+
+    a = clip_from("a", x[:, int(5 * sr):int(25 * sr)])
+    r = videosync.estimate_offset(song, 0, 50, a)
+    assert r.found and abs(r.offset - 5.0) < 0.02 and r.confidence > 0.5
+    pre = np.random.default_rng(0).uniform(-.02, .02, (2, int(1.234 * sr))).astype(np.float32)
+    b = clip_from("b", np.concatenate([pre, x[:, :int(20 * sr)]], axis=1))
+    r = videosync.estimate_offset(song, 0, 50, b)
+    assert abs(r.offset - (-1.234)) < 0.02                                   # the video starts before the song section
+    c = clip_from("c", x[:, int(8.5 * sr):int(28 * sr)])
+    r = videosync.estimate_offset(song, 6.0, 50, c)                          # relative to where the section starts
+    assert abs(r.offset - 2.5) < 0.02
+    noisy = (x[:, int(30 * sr):int(48 * sr)] * 0.4 + np.random.default_rng(5).uniform(-.1, .1, (2, 18 * sr))).astype(np.float32)
+    r = videosync.estimate_offset(song, 0, 50, clip_from("e", noisy))
+    assert abs(r.offset - 30.0) < 0.02                                       # quieter and noisier is still found
+    # a video with no sound can't be lined up, and says so
+    mute = tmp_path / "mute.mp4"
+    subprocess.run([audio_io.ffmpeg(), "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=64x36:r=10:d=5", str(mute)], check=True)
+    r = videosync.estimate_offset(song, 0, 50, mute)
+    assert not r.found and "no usable sound" in r.note
+
+
+def test_studio_video_on_a_song_is_synced_moved_sped_up_and_muted(lib, tmp_path):
+    from lazy_mixtape_maker import studio
+    sr = 44100
+    x = _aperiodic_music(2, 24)
+    music = tmp_path / "mix.wav"
+    audio_io.write_audio(music, x)
+    # a clip whose picture changes every second (frame colour = second) and whose sound is the music from 4.0 s on
+    seg = x[:, int(4 * sr):int(16 * sr)]
+    w = tmp_path / "clipsound.wav"
+    audio_io.write_audio(w, seg)
+    clip = tmp_path / "clip.mp4"
+    colors = ["red", "green", "blue", "yellow", "magenta", "cyan"]
+    parts = []
+    for i in range(12):
+        parts.append(f"color=c={colors[i % 6]}:s=64x36:r=10:d=1")
+    subprocess.run([audio_io.ffmpeg(), "-v", "error", "-y", *sum([["-f", "lavfi", "-i", p] for p in parts], []),
+                    "-i", str(w), "-filter_complex", "".join(f"[{i}:v]" for i in range(12)) + "concat=n=12:v=1[v]",
+                    "-map", "[v]", "-map", "12:a", "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(clip)],
+                   check=True)
+    p = studio.new_project(music)
+    p.add_marker(2.0, "B", "Second")
+    p.video.mode = "random"
+    p.video.show_overlay = False
+    p.video.blend = 0.5
+    p.video.width, p.video.height, p.video.fps, p.video.preset = 96, 54, 10, "ultrafast"
+    m2 = p.markers[1]
+    p.set_clip(m2.uid, clip)
+    assert m2.clip["start"] == 2.0 and m2.clip["speed"] == 1.0
+    res = studio.auto_sync_clip(p, m2.uid)                    # the clip's first frame belongs at 4.0 s on the timeline
+    assert res.found and abs(m2.clip["start"] - 4.0) < 0.02
+    assert studio.visual_labels(p, lib)[m2.uid] == "Video: clip.mp4"
+    m2.clip["start"] = 4.0
+    out = tmp_path / "v.mp4"
+    studio.render_studio(p, out, lib)
+
+    def colour(t):
+        c = frame_at(out, t)
+        return int(np.argmax(c)), c
+
+    # at 6.5 s the clip is 2.5 s in -> third colour block (blue); at 9.5 s -> 5.5 s in -> cyan block (index 5)
+    _, c1 = colour(6.5)
+    assert c1[2] > 150 and c1[0] < 90, f"expected blue at 6.5 s, got {c1}"
+    _, c2 = colour(9.5)
+    assert c2[1] > 150 and c2[2] > 150 and c2[0] < 90, f"expected cyan at 9.5 s, got {c2}"
+    # millisecond placement: moving the video 1.0 s later shows the previous colour at the same moment
+    p.set_clip(m2.uid, start=5.0)
+    studio.render_studio(p, out, lib)
+    _, c3 = colour(6.5)
+    assert c3[1] > 90 and c3[0] < 60 and c3[2] < 60, f"expected green (second block), got {c3}"
+    p.set_clip(m2.uid, start=4.001)
+    assert abs(m2.clip["start"] - 4.001) < 1e-9
+    # speed: at 2x the same moment is twice as far into the video
+    p.set_clip(m2.uid, start=4.0, speed=2.0)
+    studio.render_studio(p, out, lib)
+    _, c4 = colour(6.5)                                       # 2.5 s after the start at 2x = 5 s in -> block index 5 = cyan
+    assert c4[1] > 150 and c4[2] > 150, f"expected cyan at 2x speed, got {c4}"
+    p.set_clip(m2.uid, speed=9.0)
+    assert m2.clip["speed"] == 4.0                            # limited to a sensible range
+    # the video's own sound is never used: the soundtrack is the music
+    snd = audio_io.decode(out, sr=11025, channels=1)[0]
+    ref = audio_io.decode(music, sr=11025, channels=1)[0]
+    n = min(len(snd), len(ref))
+    assert np.corrcoef(snd[:n:5], ref[:n:5])[0, 1] > 0.9
+    # saved and reloaded
+    f = tmp_path / "c.lmv"
+    p.set_clip(m2.uid, speed=1.25, loop=True)
+    studio.save_project(p, f, lib)
+    q = studio.load_project(f, lib, [tmp_path])
+    assert q.find(m2.uid).clip["speed"] == 1.25 and q.find(m2.uid).clip["loop"] is True
+    # picking a visual for the song removes the video
+    q.clear_clip(m2.uid)
+    assert not q.find(m2.uid).clip
+
+
+def test_studio_window_video_controls(tmp_path, monkeypatch):
+    monkeypatch.setenv("LMM_DATA_DIR", str(tmp_path / "data"))
+    pytest.importorskip("PySide6")
+    import time
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    from lazy_mixtape_maker import studio
+    from lazy_mixtape_maker.gui.studio_window import StudioWindow
+    sr = 44100
+    x = _aperiodic_music(4, 20)
+    music = tmp_path / "m.wav"
+    audio_io.write_audio(music, x)
+    w_ = tmp_path / "cs.wav"
+    audio_io.write_audio(w_, x[:, int(3 * sr):int(13 * sr)])
+    clip = tmp_path / "c.mp4"
+    make_video(clip, w_, "red")
+    win = StudioWindow()
+    win.show()
+    proj = studio.new_project(music)
+    win.hist = studio.StudioHistory(proj)
+    win.refresh(rebuild_lists=True)
+    win.select(proj.markers[0].uid)
+    assert not win.cbox.isVisible()
+    win._edit(lambda p: p.set_clip(p.markers[0].uid, clip))
+    win._after()
+    assert win.cbox.isVisible() and win.timeline.clips and win.timeline.clips[0]["label"] == "c.mp4"
+    win._sync_video_blocking = None
+    # the lined-up start, then a +1 ms nudge, a speed nudge and a drag on the timeline
+    win._edit(lambda p: p.set_clip(p.markers[0].uid, start=3.0))
+    win._after()
+    assert abs(win.c_start.value() - 3.0) < 1e-6
+    win.c_nudges[3].click()                                    # +1 ms
+    assert abs(win.project.markers[0].clip["start"] - 3.001) < 1e-9
+    win.c_snudges[3].click()                                   # +0.01
+    assert abs(win.project.markers[0].clip["speed"] - 1.01) < 1e-9
+    win._clip_dragged(proj.markers[0].uid, 3.5)                # what dragging the bar does
+    assert abs(win.c_start.value() - 3.5) < 1e-6
+    win.b_cspeed1.click()
+    assert win.project.markers[0].clip["speed"] == 1.0
+    assert win.project.video.transition is not None
+    win._remove_video()
+    assert not win.cbox.isVisible() and not win.timeline.clips
+    win.dirty = False
+    win.close()
+
+
+def test_shaders_live_in_a_folder_called_shaders(tmp_path, monkeypatch):
+    monkeypatch.setenv("LMM_DATA_DIR", str(tmp_path / "data"))
+    from lazy_mixtape_maker import visuals
+    from lazy_mixtape_maker.visuals import data_dir
+    old = data_dir() / "visuals"
+    old.mkdir(parents=True)
+    (old / "keep.txt").write_text("x")
+    L = visuals.ShaderLibrary()
+    assert L.folder == data_dir() / "shaders" and (L.folder / "keep.txt").exists() and not old.exists()

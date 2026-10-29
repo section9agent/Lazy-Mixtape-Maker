@@ -288,6 +288,14 @@ Already have a mixtape (made in another program, or by a DJ)? The studio makes a
 ### The timeline
 Click to move the playhead. The red line is the playhead; coloured flags are the song markers. Zoom with **−**, **+**, **Fit**.
 
+### Putting a video on the timeline
+Instead of a visual, a song's section can show a video of your own. Select a marker, then under **Video on this song** click **Import video…**.
+- **Line up by sound**: the app compares the video's sound with the music of that section and moves the video to its best-guess position. It works best when the clip was cut from the same music at normal speed. If the match is weak it says so; if the video has no sound it can't try. Click the button again any time.
+- **Adjust by hand**: drag the video's bar in the **video lane** under the waveform, or type its start time. The **−1 s / −100 ms / −10 ms / −1 ms** and **+** buttons nudge it in milliseconds. Play to check it against the music.
+- **Speed**: change the playback speed (0.25x to 4x, with nudge buttons and a reset to 1x). **Loop** repeats a short video.
+- The video's own sound is **never** used: it is muted, and the exported soundtrack is only your audio.
+- Choosing a visual for that song again removes the video. Everything else (transitions, cards, undo/redo, saving in the `.lmv`) works as before.
+
 ### Video settings
 - **Visual blend**: how many seconds the visuals take to blend at each song change (the *Length* of a transition set to Automatic).
 - **Default transition between songs**: one of the 20 transitions with all its controls (see [Video transitions](#video-transitions)). Select a song to give *its* transition different settings under **Transition into this song**.
@@ -382,4 +390,4 @@ Useful options: `--overlap-bars` (longest blend), `--tempo-mode`, `--no-effects`
 
 **No sound from Play.** The preview needs an audio output device. Exporting still works without one.
 
-**Where is my data kept?** Imported visuals and preferences are stored in the app's data folder for your account on your computer. Sessions (`.lmm`) and projects (`.lmv`) are saved wherever you choose.
+**Where is my data kept?** Imported visuals are saved in a folder called `shaders` inside the app's data folder (an older `visuals` folder is renamed automatically). Preferences are stored in the app's data folder for your account on your computer. Sessions (`.lmm`) and projects (`.lmv`) are saved wherever you choose.

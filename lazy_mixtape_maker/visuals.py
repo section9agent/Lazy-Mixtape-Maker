@@ -420,7 +420,20 @@ class ShaderLibrary:
     """Built-in shaders plus the user's saved ones (stored in the app data folder)."""
 
     def __init__(self, folder: str | Path | None = None):
-        self.folder = Path(folder) if folder else data_dir() / "visuals"
+        if folder:
+            self.folder = Path(folder)
+        else:
+            self.folder = data_dir() / "shaders"
+            old = data_dir() / "visuals"          # earlier versions kept them here: move them over once
+            if old.is_dir() and not self.folder.exists():
+                try:
+                    old.rename(self.folder)
+                except OSError:
+                    import shutil
+                    try:
+                        shutil.copytree(old, self.folder)
+                    except OSError:
+                        pass
         self._user: dict[str, Shader] = {}
         self.reload()
 
