@@ -16,3 +16,13 @@ def _stop_leftover_drawing_threads():
             w.wait(3000)
         except Exception:  # noqa: BLE001
             pass
+
+
+def pytest_runtest_logreport(report):
+    """On GitHub Actions, turn each failed test into an annotation so the reason is visible on the run's page."""
+    import os
+    if os.environ.get("GITHUB_ACTIONS") != "true" or not report.failed:
+        return
+    text = str(report.longreprtext)[-2500:]
+    text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print(f"\n::error title=FAILED {report.nodeid} ({report.when})::{text}", flush=True)
