@@ -383,7 +383,7 @@ def test_shader_files_are_downloaded_into_the_shaders_folder_or_explained(lib, m
     monkeypatch.setattr(urllib.request, "urlopen", offline)
     sh2 = lib2.add_from_text(_tex_shader_json(["x1.png", "x2.png"]), "Other")
     assert [m[3] for m in sh2.missing_media()] == ["x1.png", "x2.png"]
-    assert (lib2.shader_folder(sh2.id) / lib2.NOTE_NAME).read_text().count("shadertoy.com/media/a/") == 2
+    assert (lib2.shader_folder(sh2.id) / lib2.NOTE_NAME).read_text(encoding="utf-8").count("shadertoy.com/media/a/") == 2
 
 
 def test_plain_shaders_stay_loose_and_picked_files_move_in(lib, tmp_path, monkeypatch):
