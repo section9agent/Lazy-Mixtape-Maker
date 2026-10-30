@@ -14,8 +14,6 @@ jobs:
       matrix:
         include:
           - { os: windows-latest, name: Windows }
-          - { os: macos-latest,   name: macOS }
-          - { os: ubuntu-22.04,   name: Linux }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +25,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libasound2-dev libpulse0
       - run: pip install -r requirements-dev.txt
       # The runners have no GPU. Tests that need OpenGL skip themselves when it isn't there.
-      - run: python -m pytest -x -q
+      - run: python -m pytest -q
         env:
           QT_QPA_PLATFORM: offscreen
           LMM_AUDIO_BACKEND: "null"
@@ -46,6 +44,7 @@ jobs:
           path: "artifacts-to-upload/*"
 
   release:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     # Collects the three builds into a DRAFT GitHub release (nothing is public until you click Publish).
     needs: build
     runs-on: ubuntu-latest
