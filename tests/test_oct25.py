@@ -343,6 +343,7 @@ def _png_bytes():
 
 
 def test_shader_files_are_downloaded_into_the_shaders_folder_or_explained(lib, monkeypatch):
+    monkeypatch.setattr("lazy_mixtape_maker.visuals.validate", lambda *a, **k: None)      # no OpenGL needed here
     import io
     import urllib.error
     import urllib.request
@@ -385,7 +386,8 @@ def test_shader_files_are_downloaded_into_the_shaders_folder_or_explained(lib, m
     assert (lib2.shader_folder(sh2.id) / lib2.NOTE_NAME).read_text().count("shadertoy.com/media/a/") == 2
 
 
-def test_plain_shaders_stay_loose_and_picked_files_move_in(lib, tmp_path):
+def test_plain_shaders_stay_loose_and_picked_files_move_in(lib, tmp_path, monkeypatch):
+    monkeypatch.setattr("lazy_mixtape_maker.visuals.validate", lambda *a, **k: None)      # no OpenGL needed here
     from lazy_mixtape_maker.visuals import add_media
     plain = lib.add_from_text("void mainImage(out vec4 c, in vec2 p){ c = vec4(1.0); }", "Plain")
     assert lib.shader_folder(plain.id) is None and (lib.folder / f"{plain.id}.json").is_file()
