@@ -89,6 +89,11 @@ class ThumbWorker(QThread):
                 renderer.release()
 
 
+import weakref
+
+LIVE_FRAME_WORKERS: "weakref.WeakSet" = weakref.WeakSet()      # so a test (or shutdown) can stop any that are left
+
+
 class FrameWorker(QThread):
     """Live preview: owns an OpenGL renderer on its own thread and draws only the *latest*
     requested picture, so a heavy shader slows the preview down instead of freezing the window.
@@ -105,6 +110,7 @@ class FrameWorker(QThread):
         self._lock = threading.Lock()
         self._wake = threading.Event()
         self._stop = False
+        LIVE_FRAME_WORKERS.add(self)
 
     def submit(self, fn, tag=None):
         with self._lock:
