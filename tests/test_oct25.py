@@ -243,7 +243,7 @@ def test_totals_label_and_folder_add_asks_for_options(tmp_path, monkeypatch):
     shown = []
 
     class FakeDlg:
-        def __init__(self, settings, has_edits, parent=None):
+        def __init__(self, settings, has_edits, parent=None, playlist=False):
             shown.append(settings)
         def exec(self):
             return True
@@ -295,23 +295,101 @@ def test_live_video_preview_follows_the_timeline(tmp_path, monkeypatch):
     app, w, _d = _gui_window(tmp_path, monkeypatch, n=2)
     w.open_video_preview()
     pv = w._vpreview
-    got = []
+    got, problems = [], []
     pv.worker.frame.connect(lambda img, tag: got.append(img))
+    pv.worker.unavailable.connect(problems.append)
+    pv.worker.failed.connect(lambda m, _t: problems.append(m))
 
-    def spin(sec):
+    def spin(sec, until=None):
         end = time.time() + sec
-        while time.time() < end:
+        while time.time() < end and not (until and until()):
             app.processEvents()
             time.sleep(0.02)
-    spin(2.0)
-    assert got, "the preview should draw a frame as soon as it opens"
-    n = len(got)
-    w._seek(20.0)                      # scrubbing the timeline updates the picture
-    spin(1.5)
-    assert len(got) > n and pv.time.text().startswith("0:20")
-    # a frame is real picture, not an empty screen
-    img = got[-1]
-    assert img.width() == 480 and img.height() == 270
-    pv.close()
-    w.state.dirty = False
-    w.close()
+    try:
+        # software OpenGL (CI runners) can take a while to compile the first shader
+        spin(30.0, lambda: got or problems)
+        if not got and problems and "OpenGL" in problems[0] or (problems and not got and "context" in problems[0].lower()):
+            pytest.skip("OpenGL can't be used from a second thread here: " + problems[0][:120])
+        assert got, "the preview should draw a frame as soon as it opens. Problems: %s" % problems[:2]
+        n = len(got)
+        w._seek(20.0)                      # scrubbing the timeline updates the picture
+        spin(20.0, lambda: len(got) > n)
+        assert len(got) > n and pv.time.text().startswith("0:20")
+        img = got[-1]
+        assert img.width() == 480 and img.height() == 270
+    finally:
+        pv.close()                          # always stop the drawing thread, or Qt aborts at exit
+        w.state.dirty = False
+        w.close()
+
+
+# ------------------------------------------------------------- shaders that bring their own files (Oct 29)
+def _tex_shader_json(files):
+    import json
+    inputs = [{"channel": i, "ctype": "texture", "id": f"t{i}", "filepath": f"/media/a/{f}"} for i, f in enumerate(files)]
+    return json.dumps({"Shader": {"info": {"name": "Textured one", "username": "u"}, "renderpass": [{
+        "type": "image", "name": "Image", "inputs": inputs,
+        "code": "void mainImage(out vec4 c, in vec2 p){ c = texture(iChannel0, p/iResolution.xy); }"}]}})
+
+
+def _png_bytes():
+    import io
+    from PIL import Image
+    b = io.BytesIO()
+    Image.new("RGB", (32, 32), (10, 200, 30)).save(b, "PNG")
+    return b.getvalue()
+
+
+def test_shader_files_are_downloaded_into_the_shaders_folder_or_explained(lib, monkeypatch):
+    import io
+    import urllib.error
+    import urllib.request
+    good = _png_bytes()
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake(req, timeout=0):
+        url = req.full_url
+        if url.endswith("/media/a/good.png"):
+            return Resp(good)
+        raise urllib.error.HTTPError(url, 404, "nope", {}, None)
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    sh = lib.add_from_text(_tex_shader_json(["good.png", "gone.png"]))
+    folder = lib.shader_folder(sh.id)
+    assert folder is not None and folder.parent == lib.folder and folder.name == "Textured one"
+    assert (folder / "good.png").is_file() and (folder / f"{sh.id}.json").is_file()      # saved with the shader
+    assert not (lib.folder / f"{sh.id}.json").exists()
+    assert [m[3] for m in sh.missing_media()] == ["gone.png"]
+    txt = lib.media_instructions(sh.id)
+    assert "gone.png" in txt and "https://www.shadertoy.com/media/a/gone.png" in txt and str(folder) in txt
+    assert (folder / lib.NOTE_NAME).is_file()                                            # how-to left in the folder
+    # the user puts the file in the folder as told: it is found, the instructions go away
+    (folder / "gone.png").write_bytes(good)
+    assert sh.missing_media() == [] and lib.fetch_missing_media(sh.id) == []
+    assert not (folder / lib.NOTE_NAME).exists() and lib.media_instructions(sh.id) == ""
+    # survives a restart, and removing the shader removes its folder
+    lib2 = ShaderLibrary()
+    assert lib2.get(sh.id) is not None and lib2.shader_folder(sh.id) == folder
+    lib2.remove(sh.id)
+    assert not folder.exists()
+    # offline: nothing downloads, one clear note, and it doesn't wait for every file
+    def offline(req, timeout=0):
+        raise urllib.error.URLError("no network")
+    monkeypatch.setattr(urllib.request, "urlopen", offline)
+    sh2 = lib2.add_from_text(_tex_shader_json(["x1.png", "x2.png"]), "Other")
+    assert [m[3] for m in sh2.missing_media()] == ["x1.png", "x2.png"]
+    assert (lib2.shader_folder(sh2.id) / lib2.NOTE_NAME).read_text().count("shadertoy.com/media/a/") == 2
+
+
+def test_plain_shaders_stay_loose_and_picked_files_move_in(lib, tmp_path):
+    from lazy_mixtape_maker.visuals import add_media
+    plain = lib.add_from_text("void mainImage(out vec4 c, in vec2 p){ c = vec4(1.0); }", "Plain")
+    assert lib.shader_folder(plain.id) is None and (lib.folder / f"{plain.id}.json").is_file()
+    img = tmp_path / "pic.png"
+    img.write_bytes(_png_bytes())
+    name = add_media(img)
+    sh = lib.add_from_text(_tex_shader_json([f"{name}"]).replace("/media/a/", "/media/a/"))
+    f = lib.shader_folder(sh.id)
+    assert f is not None and (f / name).is_file()

@@ -52,7 +52,12 @@ def cmd_show(args):
 
 
 def cmd_mix(args):
-    files = audio_io.list_audio_files(args.inputs)
+    from .playlist import expand_inputs
+    files, from_playlist, missing = expand_inputs(args.inputs)
+    for m in missing:
+        sys.stderr.write(f"Playlist entry not found, skipped: {m}\n")
+    if from_playlist:
+        args.keep_order = True            # a playlist is mixed in its own order
     if len(files) < 2:
         sys.exit("Need at least two supported audio files (mp3, wav, flac, m4a).")
     settings = MixSettings(
@@ -116,7 +121,7 @@ def cmd_video(args):
     if args.no_overlay:
         vs.show_overlay = False
     cb = _progress()
-    res = render_video(s.plan, s.library, s.paths, args.output, vs, shaders, progress=cb)
+    res = render_video(s.plan, s.library, s.paths, args.output, vs, shaders, progress=cb, extra=s.extra)
     _done()
     print(f"Video written: {res['video']}  ({_fmt(res['seconds'])}, visuals: {', '.join(res['visuals'])})")
     for w in res["warnings"]:
@@ -225,7 +230,7 @@ def build_parser():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     m = sub.add_parser("mix", help="analyse songs and generate a mix")
-    m.add_argument("inputs", nargs="+", help="audio files and/or folders")
+    m.add_argument("inputs", nargs="+", help="audio files, folders and/or playlists (.m3u .m3u8 .pls .xspf; a playlist is mixed in its own order)")
     m.add_argument("-o", "--output", required=True, help="output file: .wav, .mp3 (320k) or .flac")
     m.add_argument("--session", help="also save an editable session file (.lmm)")
     m.add_argument("--name", help="mix title")

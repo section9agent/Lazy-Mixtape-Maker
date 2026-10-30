@@ -422,7 +422,10 @@ def build_segments(p: StudioProject, shaders: ShaderLibrary, seconds: float,
     segs = []
     is_video = p.audio and audio_io.is_video_file(p.audio) and vs.use_video
     for m, t, sid in zip(ms, times, ids):
-        cover = m.cover if m.cover and Path(m.cover).is_file() else (file_cover if m.uid == "open" else None)
+        if m.cover == "none":                      # asked for no cover at all (even if the file has one)
+            cover = None
+        else:
+            cover = m.cover if m.cover and Path(m.cover).is_file() else (file_cover if m.uid == "open" else None)
         seg = Segment(m.uid, t, sid, m.artist, m.title, cover, trans=vs.transitions.get(m.uid))
         if m.clip and m.clip.get("path"):
             sp = float(m.clip.get("speed", 1.0)) or 1.0

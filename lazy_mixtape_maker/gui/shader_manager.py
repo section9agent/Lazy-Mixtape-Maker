@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
                                QVBoxLayout, QWidget)
 
@@ -113,7 +113,13 @@ class ShaderManager(QWidget):
         form.addRow(self.info)
         right.addLayout(form)
         self.b_code = QPushButton("View/Edit Code")
-        right.addWidget(self.b_code, 0, Qt.AlignmentFlag.AlignLeft)
+        self.b_media = QPushButton("Download missing files")
+        self.b_media.setToolTip("Try to download the textures / clips this shader needs, and check the shader's folder for files you added.")
+        self.b_folder = QPushButton("Open its folder")
+        self.b_folder.setToolTip("The folder that holds this shader's own files.")
+        crow = QHBoxLayout()
+        crow.addWidget(self.b_code); crow.addWidget(self.b_media); crow.addWidget(self.b_folder); crow.addStretch(1)
+        right.addLayout(crow)
         self.warn = QLabel()
         self.warn.setWordWrap(True)
         self.warn.setStyleSheet("color:#ffb454")
@@ -129,6 +135,8 @@ class ShaderManager(QWidget):
         self.b_remove.clicked.connect(self.remove)
         self.b_export.clicked.connect(self.export)
         self.b_code.clicked.connect(self.view_code)
+        self.b_media.clicked.connect(self.get_media)
+        self.b_folder.clicked.connect(self.open_folder)
         self.b_backup.clicked.connect(self.backup)
         self.b_restore.clicked.connect(self.restore)
         self.b_play.clicked.connect(self._toggle)
@@ -195,12 +203,14 @@ class ShaderManager(QWidget):
             warns = list(sh.warnings)
             miss = sh.missing_media()
             if miss:
-                warns.append("Needs " + ", ".join(f"{t} {n}" for _p, _c, t, n in miss)
-                             + " - open View/Edit Code and pick the file(s).")
+                warns.append(self.shaders.media_instructions(sh.id))
             self.warn.setText("\n".join(warns))
+            self.b_media.setVisible(bool(miss))
+            self.b_folder.setVisible(self.shaders.shader_folder(sh.id) is not None)
             self._restart()
         else:
             self.name.clear(); self.info.clear(); self.warn.clear()
+            self.b_media.setVisible(False); self.b_folder.setVisible(False)
             self.screen.clear(); self.screen.setText("Choose a visual to preview it")
         self._busy = False
 
@@ -210,8 +220,35 @@ class ShaderManager(QWidget):
         if dlg.exec() and dlg.added:
             self.rebuild(dlg.added.id)
             self.changed.emit()
-            if dlg.added.warnings:
-                QMessageBox.information(self, "Lazy Mixtape Maker", "Added, with a note:\n\n" + "\n".join(dlg.added.warnings))
+            notes = list(dlg.added.warnings)
+            if dlg.added.missing_media():
+                notes.append(self.shaders.media_instructions(dlg.added.id))
+            if notes:
+                QMessageBox.information(self, "Lazy Mixtape Maker", "Added, with a note:\n\n" + "\n\n".join(notes))
+
+    def get_media(self):
+        sh = self.current()
+        if not sh:
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            left = self.shaders.fetch_missing_media(sh.id)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self._select()
+        if left:
+            QMessageBox.information(self, "Lazy Mixtape Maker", self.shaders.media_instructions(sh.id))
+        else:
+            self.changed.emit()
+            QMessageBox.information(self, "Lazy Mixtape Maker", "Everything this shader needs is now on this computer.")
+
+    def open_folder(self):
+        sh = self.current()
+        f = self.shaders.shader_folder(sh.id) if sh else None
+        if f is not None:
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(f)))
 
     def remove(self):
         sh = self.current()

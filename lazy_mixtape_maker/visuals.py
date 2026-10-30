@@ -18,6 +18,8 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import shutil
+
 import numpy as np
 
 # ------------------------------------------------------------------ data location
@@ -39,14 +41,28 @@ def media_dir() -> Path:
     return data_dir() / "media"
 
 
+_LIB_FOLDERS: set = set()          # shader library folders in use (their sub-folders hold each shader's own files)
+
+
 def media_path(name: str) -> Path | None:
-    """The file behind a "texture:<name>" / "video:<name>" input, or None if it isn't there."""
+    """The file behind a "texture:<name>" / "video:<name>" input, or None if it isn't there.
+    A shader's own folder (shaders/<its name>/) is searched, then the shared media folder."""
     if not name:
         return None
     p = Path(name)
     if p.is_absolute():
         return p if p.is_file() else None
-    p = media_dir() / Path(name).name
+    base = Path(name).name
+    folders = {Path(f) for f in _LIB_FOLDERS} | {data_dir() / "shaders"}
+    for f in sorted(folders):
+        try:
+            for d in f.iterdir():
+                c = d / base
+                if d.is_dir() and c.is_file():
+                    return c
+        except OSError:
+            continue
+    p = media_dir() / base
     return p if p.is_file() else None
 
 
@@ -68,6 +84,12 @@ def add_media(path) -> str:
     if not dst.exists():
         shutil.copyfile(src, dst)
     return name
+
+
+def media_urls(name: str) -> list[str]:
+    """Where Shadertoy keeps a texture / clip with this file name."""
+    n = Path(name).name
+    return [f"https://www.shadertoy.com/media/a/{n}", f"https://www.shadertoy.com/presets/{n}"]
 
 
 def kind_media(kind):
@@ -435,16 +457,20 @@ class ShaderLibrary:
                     except OSError:
                         pass
         self._user: dict[str, Shader] = {}
+        self._where: dict[str, Path] = {}
+        _LIB_FOLDERS.add(self.folder)
         self.reload()
 
     # -- reading
     def reload(self) -> None:
-        self._user = {}
+        self._user, self._where = {}, {}
         if self.folder.is_dir():
-            for f in sorted(self.folder.glob("*.json")):
+            # shaders/<id>.json, and shaders/<Shader name>/<id>.json for shaders that come with their own files
+            for f in sorted([*self.folder.glob("*.json"), *self.folder.glob("*/*.json")]):
                 try:
                     sh = Shader.from_dict(json.loads(f.read_text(encoding="utf-8")))
                     self._user[sh.id] = sh
+                    self._where[sh.id] = f
                 except Exception:  # noqa: BLE001 - one bad file must not hide the rest
                     continue
 
@@ -477,8 +503,38 @@ class ShaderLibrary:
 
     def _save(self, sh: Shader) -> None:
         self.folder.mkdir(parents=True, exist_ok=True)
-        (self.folder / f"{sh.id}.json").write_text(json.dumps(sh.to_dict(), indent=1), encoding="utf-8")
+        cur = self._where.get(sh.id)
+        needs = [m for m in sh.media_inputs() if not Path(m[3]).is_absolute()]
+        if needs or (cur is not None and cur.parent != self.folder):
+            folder = cur.parent if cur is not None and cur.parent != self.folder else self._new_folder(sh)
+            folder.mkdir(parents=True, exist_ok=True)
+            for _p, _c, _t, name in needs:          # keep a copy of every file the shader uses next to it
+                src = media_path(name)
+                dst = folder / Path(name).name
+                if src is not None and not dst.exists():
+                    shutil.copyfile(src, dst)
+        else:
+            folder = self.folder
+        target = folder / f"{sh.id}.json"
+        target.write_text(json.dumps(sh.to_dict(), indent=1), encoding="utf-8")
+        if cur is not None and cur != target and cur.exists():
+            cur.unlink()
+        self._where[sh.id] = target
         self._user[sh.id] = sh
+
+    def _new_folder(self, sh: Shader) -> Path:
+        name = (re.sub(r"[^A-Za-z0-9._ -]+", "", sh.name).strip(" .") or "Shader")[:60]
+        taken = {f.parent.name.lower() for k, f in self._where.items() if k != sh.id and f.parent != self.folder}
+        other = self.folder / name
+        clash = other.is_dir() and not (other / f"{sh.id}.json").exists() and any(other.glob("*.json"))
+        if name.lower() in taken or clash:
+            name = f"{name[:50]} ({sh.id[:4]})"
+        return self.folder / name
+
+    def shader_folder(self, sid: str) -> Path | None:
+        """The folder holding a shader's own files (None for shaders that don't need any)."""
+        f = self._where.get(sid)
+        return f.parent if f is not None and f.parent != self.folder else None
 
     def add_from_text(self, text: str, name: str = "") -> Shader:
         """Accepts raw Shadertoy code or Shadertoy JSON."""
@@ -487,7 +543,13 @@ class ShaderLibrary:
             raise ValueError("Nothing to import.")
         if t[0] in "{[":
             n, author, code, warns, passes = parse_shadertoy_json(t)
-            return self.add(name or n, code, author=author, origin="shadertoy-json", warnings=warns, passes=passes)
+            sh = self.add(name or n, code, author=author, origin="shadertoy-json", warnings=warns, passes=passes)
+            if sh.missing_media():
+                try:
+                    self.fetch_missing_media(sh.id)
+                except Exception:  # noqa: BLE001
+                    pass
+            return sh
         return self.add(name or "Imported shader", t, origin="pasted")
 
     def add_from_file(self, path) -> Shader:
@@ -541,25 +603,91 @@ class ShaderLibrary:
         self._save(sh)
         return sh
 
-    def fetch_missing_media(self, sid: str, timeout: float = 20.0) -> list[str]:
-        """Best effort: download the textures / clips a Shadertoy shader refers to. Returns the names still missing."""
+    def fetch_missing_media(self, sid: str, timeout: float = 12.0) -> list[str]:
+        """Try to download the textures / clips a Shadertoy shader needs into the shader's own folder
+        (shaders/<name>/). Returns the names still missing; if any are, the folder gets a how-to note."""
+        import urllib.error
         import urllib.request
 
         sh = self.get(sid)
+        if sh is None or sh.builtin:
+            return []
         left = []
-        for _p, _c, _t, name in (sh.missing_media() if sh else []):
-            try:
-                req = urllib.request.Request(f"https://www.shadertoy.com/media/a/{name}",
-                                             headers={"User-Agent": "Mozilla/5.0 (compatible; LazyMixtapeMaker)"})
-                with urllib.request.urlopen(req, timeout=timeout) as r:
-                    data = r.read(60 << 20)
-                if len(data) < 100:
-                    raise OSError("empty")
-                media_dir().mkdir(parents=True, exist_ok=True)
-                (media_dir() / Path(name).name).write_bytes(data)
-            except Exception:  # noqa: BLE001
+        offline = False
+        for _p, _c, _t, name in sh.missing_media():
+            if name in left:
+                continue
+            ok = False
+            if not offline:
+                for url in media_urls(name):
+                    try:
+                        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; LazyMixtapeMaker)"})
+                        with urllib.request.urlopen(req, timeout=timeout) as r:
+                            data = r.read(60 << 20)
+                        if len(data) < 100 or data[:1] == b"<":          # an error page, not a picture / clip
+                            raise OSError("not a media file")
+                        folder = self._folder_for_files(sh)
+                        (folder / Path(name).name).write_bytes(data)
+                        ok = True
+                        break
+                    except urllib.error.HTTPError:
+                        continue                                         # this address doesn't have it; try the next
+                    except urllib.error.URLError:
+                        offline = True                                   # no connection: don't wait for every file
+                        break
+                    except Exception:  # noqa: BLE001
+                        continue
+            if not ok:
                 left.append(name)
+        self.write_media_note(sid)
         return left
+
+    def _folder_for_files(self, sh: Shader) -> Path:
+        if sh.id in self._user and self.shader_folder(sh.id) is None:
+            self._save(sh)                                               # moves it into its own folder
+        f = self.shader_folder(sh.id)
+        if f is None:
+            f = self._new_folder(sh)
+        f.mkdir(parents=True, exist_ok=True)
+        return f
+
+    def media_instructions(self, sid: str) -> str:
+        """Plain-language steps for getting the files a shader still needs ("" when it has everything)."""
+        sh = self.get(sid)
+        miss = sh.missing_media() if sh else []
+        if not miss:
+            return ""
+        seen, lines = set(), []
+        for _p, _c, t, name in miss:
+            if name in seen:
+                continue
+            seen.add(name)
+            lines.append(f"  - {t} \"{name}\"  ->  {media_urls(name)[0]}")
+        folder = self.shader_folder(sid) or self._new_folder(sh)
+        return (f"\u201c{sh.name}\u201d needs {len(seen)} file{'s' if len(seen) != 1 else ''} that couldn't be downloaded "
+                f"automatically (no internet, or Shadertoy didn't allow it):\n" + "\n".join(lines) + "\n\n"
+                "How to add them:\n"
+                "  1. On a computer with internet, open each link above in your web browser and save the file. "
+                "Keep the file name exactly as shown.\n"
+                f"  2. Put the file(s) in this folder:\n     {folder}\n"
+                "  3. Reopen the shader (or click \u201cCheck again\u201d) and it will use them.\n"
+                "If a link doesn't work, open the shader on shadertoy.com and save the picture / clip from its input "
+                "box, or pick any picture or video of your own with View/Edit Code and the \u2026 button next to the channel.")
+
+    NOTE_NAME = "HOW-TO-ADD-MISSING-FILES.txt"
+
+    def write_media_note(self, sid: str) -> None:
+        """Leave the instructions in the shader's folder while files are missing; remove them once it is complete."""
+        sh = self.get(sid)
+        if sh is None or sh.builtin:
+            return
+        txt = self.media_instructions(sid)
+        f = self.shader_folder(sid)
+        if txt:
+            f = self._folder_for_files(sh)
+            (f / self.NOTE_NAME).write_text(txt + "\n", encoding="utf-8")
+        elif f is not None and (f / self.NOTE_NAME).exists():
+            (f / self.NOTE_NAME).unlink()
 
     # -- backup of everything the user added
     def backup(self, path) -> int:
@@ -607,9 +735,11 @@ class ShaderLibrary:
         if sid in BUILTIN:
             raise ValueError("Built-in visuals can't be removed.")
         self._user.pop(sid, None)
-        f = self.folder / f"{sid}.json"
-        if f.exists():
+        f = self._where.pop(sid, None)
+        if f is not None and f.exists():
             f.unlink()
+            if f.parent != self.folder and not any(f.parent.glob("*.json")):
+                shutil.rmtree(f.parent, ignore_errors=True)       # the shader's own folder goes with it
 
     # -- sharing: sessions carry the code of the shaders they use
     def export_used(self, ids) -> dict[str, dict]:

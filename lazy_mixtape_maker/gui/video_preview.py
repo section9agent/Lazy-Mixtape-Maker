@@ -13,6 +13,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
+from .. import songinfo
 from ..plan import SR, timeline as build_timeline
 from ..video import AudioTexture, FrameComposer, build_mix_segments
 from .panels import fmt_time
@@ -52,6 +53,7 @@ class VideoPreviewWindow(QWidget):
         self._last = None
         self._dirty = True
         self._covers: dict[str, str | None] = {}
+        self._over: set = set()
 
         lay = QVBoxLayout(self)
         self.screen = QLabel("Starting…")
@@ -103,6 +105,12 @@ class VideoPreviewWindow(QWidget):
             return None
         if self._comp is None:
             seconds = self._duration()
+            over = songinfo.overrides(st.session.extra, self.main.tmp)
+            for k in self._over:                       # a cover that was changed back is looked up afresh
+                if k not in over:
+                    self._covers.pop(k, None)
+            self._over = set(over)
+            self._covers.update(over)
             segs, wins = build_mix_segments(st.plan, st.lib, st.paths, st.video, st.shaders, self.main.tmp, seconds,
                                             self._covers)
             self._comp = FrameComposer(segs, wins, seconds, st.video, st.shaders, st.plan.master_bpm)

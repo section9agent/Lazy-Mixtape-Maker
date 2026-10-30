@@ -13,9 +13,10 @@ from ..visuals import (Shader, ShaderError, ShaderLibrary, add_media, build_pass
 
 
 class GenerateDialog(QDialog):
-    def __init__(self, settings: MixSettings, has_edits: bool, parent=None):
+    def __init__(self, settings: MixSettings, has_edits: bool, parent=None, playlist: bool = False):
         super().__init__(parent)
         self.setWindowTitle("Generate mix")
+        self.playlist = playlist
         self.s = settings
         lay = QVBoxLayout(self)
         form = QFormLayout()
@@ -41,7 +42,10 @@ class GenerateDialog(QDialog):
             self.cue.addItem(v, k)
         self.cue.setCurrentIndex(max(0, self.cue.findData(settings.cue_point)))
         self.order = QCheckBox("Let the AI choose the song order (smoothest tempo and key flow)")
-        self.order.setChecked(settings.order == "auto")
+        self.order.setChecked(settings.order == "auto" and not playlist)
+        if playlist:
+            self.order.setText("Songs are mixed in the order of your playlist (it is never reordered)")
+            self.order.setEnabled(False)
         self.key = QCheckBox("Match keys (shift songs by up to 2 semitones so they sound good together)")
         self.key.setChecked(settings.key_match)
         self.fx = QCheckBox("Let the AI add effects (echo, filter sweeps, backspins …)")
@@ -77,7 +81,7 @@ class GenerateDialog(QDialog):
         s.clip_seconds = float(self.clip.value())
         s.overlap_bars = self.bars.value()
         s.transition_style = self.style.currentData()
-        s.order = "auto" if self.order.isChecked() else "given"
+        s.order = "auto" if self.order.isChecked() and not self.playlist else "given"
         s.key_match = self.key.isChecked()
         s.tempo_mode = self.tempo.currentData()
         s.cue_point = self.cue.currentData()
@@ -339,8 +343,7 @@ class EditShaderDialog(QDialog):
         self.note.setWordWrap(True)
         self.note.setStyleSheet("color:#ffb454")
         if miss:
-            self.note.setText("This shader uses " + ", ".join(f"{t} {n}" for _p, _c, t, n in miss)
-                              + " which isn't on this computer yet. Use the … button next to the channel to pick a file.")
+            self.note.setText(self.shaders.media_instructions(sh.id))
         lay.addWidget(self.note)
         self.msg = QLabel(); self.msg.setWordWrap(True); self.msg.setStyleSheet("color:#ff6b6b")
         lay.addWidget(self.msg)

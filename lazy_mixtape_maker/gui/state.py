@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 
 from .. import plan as planmod
+from .. import songinfo
 from ..plan import MixPlan, MixSettings
 from ..session import Session, load_session, relink, save_session
 from ..video import VideoSettings, attach_to_session, restore_from_session
@@ -67,12 +68,20 @@ class AppState(QObject):
 
     # --------------------------------------------------------------- undo / redo
     def _snap(self) -> str:
-        return json.dumps({"plan": self.plan.to_dict(), "video": self.video.to_dict()})
+        return json.dumps({"plan": self.plan.to_dict(), "video": self.video.to_dict(),
+                           "info": {"songs": {i: [a.artist, a.title] for i, a in self.lib.items()},
+                                    "covers": songinfo.snapshot(self.session.extra)}})
 
     def _restore(self, snap: str):
         d = json.loads(snap)
         self.session.plan = MixPlan.from_dict(d["plan"])
         self.video = VideoSettings.from_dict(d["video"])
+        info = d.get("info")
+        if info:
+            for i, (artist, title) in info["songs"].items():
+                if i in self.lib:
+                    self.lib[i].artist, self.lib[i].title = artist, title
+            songinfo.restore(self.session.extra, info["covers"])
 
     def _push(self, snap: str):
         self._undo.append(snap)
@@ -101,6 +110,24 @@ class AppState(QObject):
         if not self._gesture:
             self._push(snap)
         self._mark(audio)
+
+    def edit_info(self, sid: str, artist: str | None = None, title: str | None = None, cover="keep"):
+        """Change a song's artist / title / cover as one undoable step. cover: "keep", "file" (the audio file's
+        own), "none", or a picture file."""
+        if sid not in self.lib:
+            return
+        snap = self._snap()
+        an = self.lib[sid]
+        if artist is not None:
+            an.artist = artist.strip()
+        if title is not None:
+            an.title = title.strip() or an.title
+        if cover != "keep":
+            songinfo.set_cover(self.session.extra, sid, None if cover == "file" else "" if cover == "none" else cover)
+        if self._snap() == snap:
+            return
+        self._push(snap)
+        self._mark(audio=False)
 
     def edit_video(self, fn):
         snap = self._snap()
@@ -188,6 +215,7 @@ class AppState(QObject):
     def save(self, path=None):
         path = Path(path or self.file)
         attach_to_session(self.session, self.video, self.shaders, self.plan)
+        songinfo.prune(self.session.extra)
         self.session.name = path.stem
         save_session(self.session, path)
         self.file, self.dirty = path, False

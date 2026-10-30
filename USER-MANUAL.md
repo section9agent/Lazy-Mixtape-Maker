@@ -57,6 +57,7 @@ Menus: **File**, **Edit**, **Mix**, **Tools** (Visualization Studio), **Settings
 
 - Drag music files or folders onto the window, or use **Add songs** / **Add folder** on the toolbar.
 - Subfolders are included when you add a folder.
+- **Playlists:** **Add playlist** (toolbar and File menu) or dropping a `.m3u`, `.m3u8`, `.pls` or `.xspf` file adds its songs **in the playlist's order, and the mix keeps that order**: the AI never reorders a playlist (it still beat-matches, blends and picks effects). Relative paths work, and songs the playlist lists that can't be found are reported and skipped. Songs you add afterwards go to the end. On the command line, a playlist given to `mix` is kept in order too.
 - Each song is analysed for tempo (BPM), key, and its parts (intro, verse, chorus, bridge, outro). The result is saved in a small file next to the song (`Song.mp3.lmmanalysis`) and in the app's cache, so the same song is never analysed twice, even on another computer if you copy the file along. If the song changes, it is analysed again. A read-only music folder is fine.
 - The first batch of songs is mixed automatically. Songs added later are placed at the end of the mix; drag them where you want them.
 - Songs that can't be read are listed in a message and skipped.
@@ -119,6 +120,7 @@ Zoom with **−**, **+**, **Fit**, or Ctrl + mouse wheel.
 Movements snap to beats.
 
 ### Song tab
+- **Edit song info (cover, artist, title)…** (also the **Song info…** button under the list, a double-click on a song, or Edit → Edit song info, Ctrl+Shift+E): change the song's cover art, artist and title. The window starts with what the song has now, which is what the audio file's own tags say until you change it. **Choose picture…**, **No cover** or **Use the file's cover** set the cover; **Reset everything to the file's own information** goes back to the tags. The change shows in the list, the cue sheet and track list, the live preview and the exported video's card, is saved in the session (a chosen picture is kept inside the `.lmm`), and can be undone. The Visualization Studio has the same dialog.
 - **Starts at / Ends at**: type exact times, or pick a part from the list and press **Start here** / **End here**.
 - **Back to the AI's choice**: resets the trim.
 - Shows the song's tempo, the speed it plays at, and its key (and any pitch shift).
@@ -130,7 +132,7 @@ Movements snap to beats.
 - **Back to the AI's choice**.
 
 ### Order
-Drag songs in the **Songs in the mix** list, or use the **↑ ↓** buttons.
+Drag songs in the **Songs in the mix** list, or use the bold **up / down arrow** buttons under the list.
 
 ### Visual tab
 Pick the visual for the selected song (used in video export). See [Making a video](#10-making-a-video).
@@ -263,6 +265,8 @@ Shadertoy has no download button, so there are three ways in:
 
 **From a link.** Paste the shader's web address (like `https://www.shadertoy.com/view/XXXXXX`). It's downloaded complete, with all of its passes. **No account or API key is needed.** An API key box is there only as a fallback. This needs internet just for the download. If a shader's author has blocked outside access, use the paste or multi-pass tabs instead.
 
+**Shaders that need files.** When a Shadertoy shader uses textures or video clips, the app tries to download them straight away and saves them **with the shader**: such a shader gets its own folder, `shaders/<shader name>/`, holding its `.json` and its files (shaders that need nothing stay as single files in `shaders`). If a file can't be downloaded (no internet, or Shadertoy refused), the app tells you which files are missing, the link to get each one, and the folder to put it in. The same steps are saved in that folder as `HOW-TO-ADD-MISSING-FILES.txt`. Save the file there under the exact name shown, then click **Download missing files** (or just reopen the shader). **Open its folder** opens it for you.
+
 Textures and video clips: a channel can be set to **Texture image…** or **Video clip…**, which opens a file browser. For shaders you download or import, the app finds the textures and clips the code uses and shows exactly those on the right channel; if a file isn't on your computer yet, it says so and the **…** button next to the channel lets you pick it. Webcam, cube-map and 3D-texture inputs can't work offline and are replaced with noise. A shader's own *sound* tab is ignored: the video always uses your mix's audio. A shader's music input can be on any channel (iChannel0–3) and reacts to the mix.
 
 ---
@@ -276,7 +280,7 @@ Already have a mixtape (made in another program, or by a DJ)? The studio makes a
 2. **Mark where the songs change.** Choose any of:
    - **Import cue sheet** (Ctrl+I): a `.cue` file, or a plain text list with a time at the start of each line, such as `12:34  Artist - Title` or `[1:02:03] Artist – Title`. The track list this app writes works too.
    - **Add markers by hand:** double-click the waveform, right-click it, press **M** at the playhead, or use **Add marker here**.
-3. **Edit the markers.** Click a marker (in the list or the timeline) to edit it under **Selected song**: start time, artist, title, cover image, and visual. Drag a marker on the timeline to move it. Right-click a marker (or press Delete) to remove it.
+3. **Edit the markers.** Click a marker (in the list or the timeline) to edit it under **Selected song**: start time, artist, title, cover image, and visual. **Edit song info (cover, artist, title)…** opens the same dialog as the mix window (the first song starts with the audio file's own tags and cover; **Reset** goes back to them). Drag a marker on the timeline to move it. Right-click a marker (or press Delete) to remove it.
 4. **Choose the visuals** under **Video**:
    - **Let the app choose**: matched to how loud each song is.
    - **Random visual for each song**.
@@ -328,6 +332,7 @@ Very long files (over about 40 minutes) work too; the music-reactive part of the
 |---|---|
 | Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S | New / Open / Save / Save as |
 | Ctrl+I / Ctrl+Shift+I | Add songs / Add folder |
+| Ctrl+Shift+E | Edit song info (cover, artist, title) |
 | Ctrl+G | Generate mix |
 | Space | Play / pause |
 | Ctrl+E / Ctrl+Shift+E / Ctrl+Alt+E | Export audio / Export video / Export both |
@@ -390,4 +395,4 @@ Useful options: `--overlap-bars` (longest blend), `--tempo-mode`, `--no-effects`
 
 **No sound from Play.** The preview needs an audio output device. Exporting still works without one.
 
-**Where is my data kept?** Imported visuals are saved in a folder called `shaders` inside the app's data folder (an older `visuals` folder is renamed automatically). Preferences are stored in the app's data folder for your account on your computer. Sessions (`.lmm`) and projects (`.lmv`) are saved wherever you choose.
+**Where is my data kept?** Imported visuals are saved in a folder called `shaders` inside the app's data folder (a shader that needs textures or clips gets its own sub-folder there, with its files) (an older `visuals` folder is renamed automatically). Preferences are stored in the app's data folder for your account on your computer. Sessions (`.lmm`) and projects (`.lmv`) are saved wherever you choose.

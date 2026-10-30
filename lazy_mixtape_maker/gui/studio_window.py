@@ -22,6 +22,8 @@ from .panels import ThumbCache, fmt_time
 from .player import AudioPlayer
 from .shader_manager import ShaderManager
 from .tasks import APP, TaskMixin
+from .song_info import SongInfoDialog
+from .. import songinfo
 from .transition_editor import TransitionEditor
 from .workers import FrameWorker
 
@@ -336,6 +338,10 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.f_cover = QLabel("none"); self.f_cover.setStyleSheet("color:#8b93a1")
         self.b_cover = QPushButton("Choose…"); self.b_nocover = QPushButton("Clear")
         cov.addWidget(self.f_cover, 1); cov.addWidget(self.b_cover); cov.addWidget(self.b_nocover)
+        self.b_info = QPushButton("Edit song info (cover, artist, title)…")
+        self.b_info.setToolTip("Change this song's cover art, artist and title. It starts with what the song has now; "
+                               "Reset goes back to what the audio file says.")
+        f.addRow(self.b_info)
         f.addRow("Starts at", self.f_time)
         f.addRow("Artist", self.f_artist)
         f.addRow("Title", self.f_title)
@@ -517,6 +523,7 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.t_default.changed.connect(lambda: self._video(transition=self.t_default.value()))
         self.use_video.toggled.connect(lambda c: None if self._busy else self._video(use_video=c))
         self.b_cover.clicked.connect(self._choose_cover)
+        self.b_info.clicked.connect(self._song_info)
         self.b_nocover.clicked.connect(lambda: self._edit_sel(cover=""))
         self.group.buttonToggled.connect(self._mode)
         self.single.activated.connect(lambda _: self._video(single_shader=self.single.currentData()))
@@ -747,6 +754,24 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.hist.end_gesture()
         self.refresh()
 
+    def _song_info(self):
+        """The same song-info dialog as the mix window. The file's own information belongs to the first song."""
+        m = self.project.find(self.sel) if self.sel else None
+        if m is None:
+            return
+        first = self.project.markers[0].uid == m.uid
+        tags = songinfo.file_info(self.project.audio) if first and self.project.audio and Path(self.project.audio).exists() \
+            else {"artist": "", "title": ""}
+        fc = self.file_cover if first else None
+        cur = None if m.cover == "none" else (m.cover if m.cover and Path(m.cover).is_file() else fc)
+        dlg = SongInfoDialog(m.artist, m.title, cur, tags["artist"], tags["title"], fc, self, "",
+                             str(self.settings.value("last_dir", "")))
+        if not dlg.exec():
+            return
+        v = dlg.values()
+        cover = {"keep": m.cover, "file": "", "none": "none"}.get(v["cover"], v["cover"])
+        self._edit_sel(artist=v["artist"], title=v["title"], cover=cover)
+
     def _choose_cover(self):
         if not self.sel:
             return
@@ -937,7 +962,7 @@ class StudioWindow(TaskMixin, QMainWindow):
             first = p.markers[0].time if p.markers else 0
             self.note.setText(f"Before the first marker the video shows “{p.file_title or p.name}”." if has and first > 1 else "")
             m = p.find(self.sel)
-            for w in (self.f_time, self.f_artist, self.f_title, self.f_visual, self.b_clip, self.b_cover, self.b_nocover, self.b_del):
+            for w in (self.f_time, self.f_artist, self.f_title, self.f_visual, self.b_clip, self.b_cover, self.b_nocover, self.b_del, self.b_info):
                 w.setEnabled(m is not None)
             if rebuild_lists:
                 for combo in (self.f_visual, self.single):
@@ -946,10 +971,11 @@ class StudioWindow(TaskMixin, QMainWindow):
                         combo.addItem(sh.name, sh.id)
                 self.library.rebuild()
             if m:
+                first_marker = bool(p.markers) and p.markers[0].uid == m.uid
                 self.f_time.setMaximum(max(1.0, p.duration))
                 self.f_time.setValue(m.time)
                 self.f_artist.setText(m.artist); self.f_title.setText(m.title)
-                self.f_cover.setText(Path(m.cover).name if m.cover else "none")
+                self.f_cover.setText("none" if m.cover == "none" else Path(m.cover).name if m.cover else ("file's cover" if first_marker and self.file_cover else "none"))
                 self.f_visual.setCurrentIndex(max(0, self.f_visual.findData(resolved.get(m.uid, ""))))
                 lab = labels.get(m.uid, "")
                 has_clip = bool(m.clip.get("path"))

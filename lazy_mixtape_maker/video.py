@@ -902,8 +902,8 @@ def render_segments(segments: list[Segment], wins: list, seconds: float, out_pat
 
 def render_video(plan: MixPlan, lib: dict[str, SongAnalysis], paths: dict[str, str], out_path,
                  vs: VideoSettings | None = None, shaders: ShaderLibrary | None = None,
-                 audio: np.ndarray | None = None, progress=None, cancel=None) -> dict:
-    """Render the whole mix to an mp4. `audio` is the already rendered mix (else it is rendered here)."""
+                 audio: np.ndarray | None = None, progress=None, cancel=None, extra: dict | None = None) -> dict:
+    """Render the whole mix to an mp4 (`extra` = the session's extra, which holds the covers you chose). `audio` is the already rendered mix (else it is rendered here)."""
     from .render import render_mix
 
     vs = vs or VideoSettings()
@@ -918,7 +918,9 @@ def render_video(plan: MixPlan, lib: dict[str, SongAnalysis], paths: dict[str, s
         tmp = Path(tmp)
         wav = tmp / "mix.wav"
         audio_io.write_audio(wav, audio)
-        segs, wins = build_mix_segments(plan, lib, paths, vs, shaders, tmp, seconds)
+        from . import songinfo
+        covers = songinfo.overrides(extra, tmp) if extra else None
+        segs, wins = build_mix_segments(plan, lib, paths, vs, shaders, tmp, seconds, covers)
         return render_segments(segs, wins, seconds, out_path, vs, shaders, wav, audio, SR,
                                progress=lambda m, f: say(m, 0.3 + 0.7 * f), cancel=cancel, bpm=plan.master_bpm)
 

@@ -135,6 +135,9 @@ class TrackTab(_Tab):
         self.info.setWordWrap(True)
         self.info.setTextFormat(Qt.TextFormat.RichText)
         lay.addWidget(self.title)
+        self.b_edit_info = QPushButton("Edit song info (cover, artist, title)…")
+        self.b_edit_info.clicked.connect(lambda: self.window().edit_song_info() if hasattr(self.window(), "edit_song_info") else None)
+        lay.addWidget(self.b_edit_info)
         lay.addWidget(self.info)
         box = QGroupBox("Which part of the song plays")
         form = QFormLayout(box)
@@ -163,7 +166,7 @@ class TrackTab(_Tab):
     def _refresh(self):
         i = self.idx()
         t = self.state.selected_track()
-        for w in (self.start, self.end, self.sections, self.b_start, self.b_end, self.b_auto):
+        for w in (self.start, self.end, self.sections, self.b_start, self.b_end, self.b_auto, self.b_edit_info):
             w.setEnabled(t is not None)
         self.sections.clear()
         if t is None:

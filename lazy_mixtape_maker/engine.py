@@ -65,7 +65,8 @@ def export_both(session: Session, audio_path, video_path, video_settings=None, s
     res = export_session(session, audio_path, write_cue=write_cue, audio=audio)
     say("saved the audio", 0.38)
     vid = render_video(session.plan, session.library, session.paths, video_path, video_settings, shaders,
-                       audio=audio, progress=lambda m, f: say(m, 0.38 + 0.62 * f), cancel=cancel)
+                       audio=audio, progress=lambda m, f: say(m, 0.38 + 0.62 * f), cancel=cancel,
+                       extra=session.extra)
     res.update(video=vid["video"], warnings=vid.get("warnings", []))
     return res
 

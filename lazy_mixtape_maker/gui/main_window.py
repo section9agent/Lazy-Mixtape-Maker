@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel, Q
 
 from .. import __version__, audio_io, cue as cuemod, plan as planmod, prefs
 from ..audio_io import SR
+from .. import songinfo
+from ..playlist import expand_inputs
 from ..engine import analyze_library, export_both, export_session, transition_preview_plan
 from ..render import MissingSongsError, render_mix
 from ..video import render_video
@@ -23,6 +25,7 @@ from . import theme
 from .player import AudioPlayer
 from .transition_editor import TransitionsPanel
 from .dialogs import AddVisualDialog, GenerateDialog
+from .song_info import SongInfoDialog
 from .shader_manager import ShaderManager
 from .panels import CuePanel, Inspector, ThumbCache, VisualsPanel, fmt_hms, fmt_time
 from .state import AppState
@@ -32,7 +35,8 @@ from .workers import Worker
 
 ORG, APP = "LazyMixtapeMaker", "Lazy Mixtape Maker"
 SESSION_FILTER = "Lazy Mixtape session (*.lmm)"
-AUDIO_FILTER = "Music and video (*.mp3 *.wav *.flac *.m4a *.mp4 *.mkv *.mov *.webm *.avi *.m4v)"
+AUDIO_FILTER = "Music, video and playlists (*.mp3 *.wav *.flac *.m4a *.mp4 *.mkv *.mov *.webm *.avi *.m4v *.m3u *.m3u8 *.pls *.xspf)"
+PLAYLIST_FILTER = "Playlists (*.m3u *.m3u8 *.pls *.xspf)"
 
 
 class TrackList(QListWidget):
@@ -106,12 +110,16 @@ class MainWindow(TaskMixin, QMainWindow):
         self.list = TrackList()
         ll.addWidget(self.list, 1)
         row = QHBoxLayout()
-        self.b_up, self.b_down, self.b_remove = QPushButton("↑"), QPushButton("↓"), QPushButton("Remove")
+        self.b_up, self.b_down, self.b_remove = QPushButton(), QPushButton(), QPushButton("Remove")
+        self.b_info = QPushButton("Song info…")
+        self.b_info.setToolTip("Change this song's cover art, artist and title")
         self.b_up.setToolTip("Move up"); self.b_down.setToolTip("Move down")
         self.b_up.setFixedSize(52, 38); self.b_down.setFixedSize(52, 38)
         for b in (self.b_up, self.b_down):
-            b.setStyleSheet("font-size: 20px; padding: 0")
-        row.addWidget(self.b_up); row.addWidget(self.b_down); row.addStretch(1); row.addWidget(self.b_remove)
+            b.setIconSize(QSize(30, 30))
+            b.setStyleSheet("padding: 0")
+        self.b_up.setIcon(theme.arrow_icon(True)); self.b_down.setIcon(theme.arrow_icon(False))
+        row.addWidget(self.b_up); row.addWidget(self.b_down); row.addStretch(1); row.addWidget(self.b_info); row.addWidget(self.b_remove)
         ll.addLayout(row)
         hint = QLabel("Drag songs to reorder. Drop music files here to add them.")
         hint.setStyleSheet("color:#8b93a1"); hint.setWordWrap(True)
@@ -160,6 +168,8 @@ class MainWindow(TaskMixin, QMainWindow):
         # wiring
         self.list.currentRowChanged.connect(lambda r: s.select(r) if r >= 0 else None)
         self.list.moved.connect(self._reorder)
+        self.list.itemDoubleClicked.connect(lambda it: self.edit_song_info(self.list.row(it)))
+        self.b_info.clicked.connect(lambda: self.edit_song_info())
         self.list.files_dropped.connect(lambda ps: self.add_files(ps, ask_options=any(Path(p).is_dir() for p in ps)))
         self.b_up.clicked.connect(lambda: self._nudge(-1))
         self.b_down.clicked.connect(lambda: self._nudge(1))
@@ -187,6 +197,7 @@ class MainWindow(TaskMixin, QMainWindow):
         self.a_save = act("Save session", self.save_session, "Ctrl+S")
         self.a_save_as = act("Save session as…", lambda: self.save_session(True), "Ctrl+Shift+S")
         self.a_add = act("Add songs", self.add_songs_dialog, "Ctrl+I", "Add songs to the mix", "＋")
+        self.a_add_playlist = act("Add playlist", self.add_playlist_dialog, None, "Add a playlist (.m3u, .m3u8, .pls, .xspf): its songs are mixed in the playlist's order", "☰")
         self.a_add_folder = act("Add folder", self.add_folder_dialog, "Ctrl+Shift+I", "Add every song in a folder", "▤")
         self.a_locate = act("Find missing songs…", self.locate_songs)
         self.a_gen = act("Generate mix", self.generate, "Ctrl+G", "Let the AI build (or rebuild) the mix", "✦")
@@ -208,15 +219,16 @@ class MainWindow(TaskMixin, QMainWindow):
         self.a_overlay.setCheckable(True)
         self.a_overlay.setChecked(prefs.overlay_enabled())
         self.a_overlay.setToolTip("On by default. Turn off to leave the card out of every video (mix videos and the studio).")
+        self.a_info = act("Edit song info…", self.edit_song_info, "Ctrl+Shift+E", "Change the selected song's cover art, artist and title")
         self.a_quit = act("Quit", self.close, "Ctrl+Q")
         self.a_about = act("About", self.about)
         m = self.menuBar()
         f = m.addMenu("&File")
-        for a in (self.a_new, self.a_open, self.a_save, self.a_save_as, None, self.a_add, self.a_add_folder, self.a_locate,
+        for a in (self.a_new, self.a_open, self.a_save, self.a_save_as, None, self.a_add, self.a_add_folder, self.a_add_playlist, self.a_locate,
                   None, self.a_audio, self.a_video, self.a_both, self.a_cue, None, self.a_quit):
             f.addAction(a) if a else f.addSeparator()
         e = m.addMenu("&Edit")
-        for a in (self.a_undo, self.a_redo, None, self.a_del):
+        for a in (self.a_undo, self.a_redo, None, self.a_info, self.a_del):
             e.addAction(a) if a else e.addSeparator()
         mx = m.addMenu("&Mix")
         for a in (self.a_gen, self.a_refresh, None, self.a_play, self.a_stop):
@@ -232,7 +244,7 @@ class MainWindow(TaskMixin, QMainWindow):
         tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         tb.setIconSize(QSize(34, 34))
         self.addToolBar(tb)
-        for a in (self.a_add, self.a_add_folder, None, self.a_gen, None, self.a_play, self.a_stop, None,
+        for a in (self.a_add, self.a_add_folder, self.a_add_playlist, None, self.a_gen, None, self.a_play, self.a_stop, None,
                   self.a_audio, self.a_video, self.a_both, None, self.a_vpreview, self.a_studio):
             tb.addAction(a) if a else tb.addSeparator()
 
@@ -344,14 +356,26 @@ class MainWindow(TaskMixin, QMainWindow):
             self.settings.setValue("last_dir", d)
             self.add_files([d], ask_options=True)
 
+    def add_playlist_dialog(self):
+        files, _ = QFileDialog.getOpenFileNames(self, "Add a playlist", str(self.settings.value("last_dir", "")), PLAYLIST_FILTER)
+        if files:
+            self.settings.setValue("last_dir", str(Path(files[0]).parent))
+            self.add_files(files)
+
     def add_files(self, paths, ask_options: bool = False):
-        files = audio_io.list_audio_files(paths)
+        files, playlist, missing = expand_inputs(paths)
         if not files:
             self.statusBar().showMessage("No mp3, wav, flac or m4a files found.", 5000)
+            if missing:
+                QMessageBox.warning(self, APP, "The playlist's songs weren't found on this computer:\n\n" +
+                                    "\n".join(missing[:15]))
             return
+        if missing:
+            QMessageBox.warning(self, APP, f"{len(missing)} song(s) in the playlist weren't found and are skipped:\n\n" +
+                                "\n".join(missing[:15]))
         chosen = None
-        if ask_options and not self.state.plan.tracks:       # a folder starts the mix: ask how to make it first
-            dlg = GenerateDialog(self.state.plan.settings, False, self)
+        if (ask_options or playlist) and not self.state.plan.tracks:   # a folder or playlist starts the mix: ask how first
+            dlg = GenerateDialog(self.state.plan.settings, False, self, playlist=playlist)
             if not dlg.exec():
                 return
             chosen = dlg.result_settings()
@@ -367,6 +391,25 @@ class MainWindow(TaskMixin, QMainWindow):
 
         self.run_task(f"Analysing {len(files)} song{'s' if len(files) != 1 else ''}…",
                       lambda cb, cancel: analyze_library(files, progress=cb), done)
+
+    def edit_song_info(self, index=None):
+        """Cover art, artist and title of a song. It starts with what the song has now; Reset goes back to the file's tags."""
+        i = self.state.sel if not isinstance(index, int) else index
+        if not 0 <= i < len(self.state.plan.tracks):
+            return
+        st = self.state
+        sid = st.plan.tracks[i].song_id
+        an = st.lib[sid]
+        path = st.paths.get(sid)
+        tags = songinfo.file_info(path) if path and Path(path).exists() else {"artist": an.artist, "title": an.title}
+        fc = songinfo.file_cover(path, self.tmp / f"filecover_{sid[:12]}.jpg") if path and Path(path).exists() else None
+        cur = songinfo.current_cover(st.session.extra, sid, path, self.tmp)
+        dlg = SongInfoDialog(an.artist, an.title, cur, tags["artist"], tags["title"], fc, self,
+                             f"Song {i + 1}: {Path(path).name if path else an.title}",
+                             str(self.settings.value("last_dir", "")))
+        if dlg.exec():
+            v = dlg.values()
+            st.edit_info(sid, v["artist"], v["title"], v["cover"])
 
     def remove_selected(self):
         i = self.state.sel
@@ -490,7 +533,8 @@ class MainWindow(TaskMixin, QMainWindow):
         st = self.state
 
         def job(cb, cancel):
-            return render_video(st.plan, st.lib, st.paths, path, st.video, st.shaders, progress=cb, cancel=cancel)
+            return render_video(st.plan, st.lib, st.paths, path, st.video, st.shaders, progress=cb, cancel=cancel,
+                                extra=st.session.extra)
 
         def done(res):
             msg = f"Saved {res['video']}\nLength {fmt_time(res['seconds'])}"
