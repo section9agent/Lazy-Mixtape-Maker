@@ -143,9 +143,12 @@ class FrameWorker(QThread):
                 try:
                     raw = fn(r)
                     import numpy as np
-                    arr = np.ascontiguousarray(np.frombuffer(raw, np.uint8).reshape(h, w, 3)[::-1])
-                    img = QImage(arr.data, w, h, w * 3, QImage.Format.Format_RGB888).copy()
-                    self.frame.emit(img, tag)
+                    # a job may return several pictures at once as [(tag, rgb bytes), ...] (e.g. original and remix)
+                    items = raw if isinstance(raw, list) else [(tag, raw)]
+                    for tg, rgb in items:
+                        arr = np.ascontiguousarray(np.frombuffer(rgb, np.uint8).reshape(h, w, 3)[::-1])
+                        img = QImage(arr.data, w, h, w * 3, QImage.Format.Format_RGB888).copy()
+                        self.frame.emit(img, tg)
                 except Exception as e:  # noqa: BLE001
                     self.failed.emit(str(e), tag)
         finally:

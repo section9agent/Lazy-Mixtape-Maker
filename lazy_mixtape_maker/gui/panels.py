@@ -508,6 +508,15 @@ class TrackVisualTab(_Tab):
         self.combo.setEnabled(t is not None)
         self.combo.blockSignals(True)
         self.combo.clear()
+        path = self.state.paths.get(t.song_id) if t is not None else None
+        remembered = self.state.video.clips.get(t.uid) if t is not None else None
+        cur = self._resolved()[self.idx()] if t is not None and self.idx() < len(self._resolved()) else ""
+        if str(cur).startswith("@clip:"):
+            remembered = cur[6:]
+        if remembered:
+            self.combo.addItem("▶ Video clip: " + Path(remembered).name, "@clip:" + remembered)
+        if path and is_video_file(path):
+            self.combo.addItem("▶ This song's own video", "@video")
         for sh in self.state.shaders.all():
             self.combo.addItem(sh.name, sh.id)
         self.combo.blockSignals(False)
@@ -517,18 +526,19 @@ class TrackVisualTab(_Tab):
             return
         res = self._resolved()
         sid = res[self.idx()] if self.idx() < len(res) else ""
-        self.combo.blockSignals(True)
-        self.combo.setCurrentIndex(max(0, self.combo.findData(sid)))
-        self.combo.blockSignals(False)
         self.head.setText(f"Visual while <b>{self.state.lib[t.song_id].title}</b> plays")
-        path = self.state.paths.get(t.song_id)
-        own_video = bool(self.state.video.use_video and path and is_video_file(path))
+        own_video = bool(self.state.video.use_video and path and is_video_file(path)
+                         and not (self.state.video.mode == "per_song" and self.state.video.assignments.get(t.uid)))
+        self.combo.blockSignals(True)
+        self.combo.setCurrentIndex(max(0, self.combo.findData("@video" if own_video else sid)))
+        self.combo.blockSignals(False)
         sh = self.state.shaders.get(sid)
         if str(sid).startswith("@clip:"):
             self.head.setText(self.head.text() + f"<br>Video clip: <b>{Path(sid[6:]).name}</b>")
             self.pic.setText("video clip")
         elif own_video:
-            self.head.setText(self.head.text() + "<br>This song is a video file, so its own video is shown.")
+            self.head.setText(self.head.text() + "<br>This song is a video file, so its own video is shown. "
+                              "Pick a visual in the list to use that instead; pick “▶ This song's own video” to switch back.")
             self.pic.setText("its own video")
         elif sh:
             pm = self.thumbs.get(sh)
@@ -555,6 +565,8 @@ class TrackVisualTab(_Tab):
         self._assign(self.combo.currentData())
 
     def _assign(self, sid):
+        if sid is None:
+            return
         res = self._resolved()
         i = self.idx()
         uids = [t.uid for t in self.state.plan.tracks]
@@ -566,7 +578,13 @@ class TrackVisualTab(_Tab):
                 # video songs keep showing their own video unless you pick something for them
                 v.assignments = {u: s for u, s in zip(uids, res) if u not in vids}
                 v.mode = "per_song"
-            v.assignments[uids[i]] = sid
+            if sid == "@video":                         # back to the song's own video: no visual assigned
+                v.assignments.pop(uids[i], None)
+                v.use_video = True
+            else:
+                v.assignments[uids[i]] = sid
+                if str(sid).startswith("@clip:"):
+                    v.clips[uids[i]] = sid[6:]
         self.state.edit_video(fn)
 
 

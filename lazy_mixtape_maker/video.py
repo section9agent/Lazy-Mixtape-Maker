@@ -38,6 +38,7 @@ class VideoSettings:
     mode: str = "auto"
     single_shader: str = "builtin:plasma"
     assignments: dict[str, str] = field(default_factory=dict)   # track uid -> shader id (per_song)
+    clips: dict[str, str] = field(default_factory=dict)         # track uid -> the video clip last chosen for it (to switch back to)
     width: int = 1280
     height: int = 720
     fps: int = 30

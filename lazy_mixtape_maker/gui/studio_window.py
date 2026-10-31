@@ -23,6 +23,7 @@ from .player import AudioPlayer
 from .shader_manager import ShaderManager
 from .tasks import APP, TaskMixin
 from .song_info import SongInfoDialog
+from .studio_settings import StudioSettingsDialog
 from .. import songinfo
 from .transition_editor import TransitionEditor
 from .workers import FrameWorker
@@ -557,6 +558,7 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.a_mark = act("Add marker", lambda: self.add_marker(self.timeline.playhead), "M", "⚑")
         self.a_del = act("Remove selected marker", lambda: self.remove_marker(self.sel), "Delete")
         self.a_play = act("Play / pause", self.toggle_play, "Space", "▶")
+        self.a_settings = act("Project settings…", self.project_settings, "Ctrl+Shift+G", "⚙")
         self.a_close = act("Close studio", self.close, "Ctrl+W")
         m = self.menuBar()
         fm = m.addMenu("&File")
@@ -564,14 +566,14 @@ class StudioWindow(TaskMixin, QMainWindow):
                   self.a_export, None, self.a_close):
             fm.addAction(a) if a else fm.addSeparator()
         em = m.addMenu("&Edit")
-        for a in (self.a_undo, self.a_redo, None, self.a_mark, self.a_del):
+        for a in (self.a_undo, self.a_redo, None, self.a_settings, None, self.a_mark, self.a_del):
             em.addAction(a) if a else em.addSeparator()
         tb = QToolBar("Studio")
         tb.setMovable(False)
         tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         tb.setIconSize(QSize(34, 34))
         self.addToolBar(tb)
-        for a in (self.a_open, self.a_cue, None, self.a_play, self.a_mark, None, self.a_export):
+        for a in (self.a_open, self.a_cue, None, self.a_play, self.a_mark, None, self.a_settings, self.a_export):
             tb.addAction(a) if a else tb.addSeparator()
 
     # ------------------------------------------------------------- loading
@@ -754,6 +756,29 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.hist.end_gesture()
         self.refresh()
 
+    def project_settings(self):
+        """All the project's video settings in one window (the same ones are also in the side panel)."""
+        dlg = StudioSettingsDialog(self.project.video, self.shaders, st.has_source_video(self.project), self)
+        if dlg.exec():
+            ch = dlg.changes()
+            mode = ch.pop("mode", None)
+            if mode == "per_song" and self.project.video.mode != "per_song":
+                resolved = dict(st.resolved_visuals(self.project, self.shaders, self.project.duration))
+
+                def fn(p):                            # "I choose per song" starts from what is shown now
+                    for mk in p.markers:
+                        if not st.has_source_video(p):
+                            mk.shader = mk.shader or resolved.get(mk.uid, "")
+                    for k, v in ch.items():
+                        setattr(p.video, k, v)
+                    p.video.mode = "per_song"
+                self._edit(fn)
+                self._after()
+            elif mode or ch:
+                if mode:
+                    ch["mode"] = mode
+                self._video(**ch)
+
     def _song_info(self):
         """The same song-info dialog as the mix window. The file's own information belongs to the first song."""
         m = self.project.find(self.sel) if self.sel else None
@@ -788,15 +813,38 @@ class StudioWindow(TaskMixin, QMainWindow):
         resolved = dict(st.resolved_visuals(self.project, self.shaders, self.project.duration))
 
         def fn(p):
+            m = p.find(uid)
+            if sid == "@clip":                       # back to the video placed on this song
+                p.set_clip(uid, off=False)
+                return
+            if sid == "@video":                      # back to the audio file's own picture
+                m.shader = ""
+                if m.clip:
+                    p.set_clip(uid, off=True)
+                return
             if p.video.mode != "per_song":
-                for m in p.markers:
+                for mk in p.markers:
                     if not st.has_source_video(p):        # a video file keeps its own picture unless you pick a visual
-                        m.shader = resolved.get(m.uid, m.shader)
+                        mk.shader = resolved.get(mk.uid, mk.shader)
                 p.video.mode = "per_song"
-            p.find(uid).shader = sid
-            p.clear_clip(uid)                 # a visual picked here replaces the video
+            m.shader = sid
+            if m.clip:
+                p.set_clip(uid, off=True)             # a visual replaces the video; the video is kept to switch back to
         self._edit(fn)
         self._after()
+
+    def _fill_visual_combo(self, m):
+        """The Visual list for a song: its own video choices first (when it has any), then every visual."""
+        c = self.f_visual
+        c.blockSignals(True)
+        c.clear()
+        if m is not None and m.clip.get("path"):
+            c.addItem("▶ Video: " + Path(m.clip["path"]).name, "@clip")
+        if st.has_source_video(self.project):
+            c.addItem("▶ The file's own video", "@video")
+        for sh in self.shaders.all():
+            c.addItem(sh.name, sh.id)
+        c.blockSignals(False)
 
     def _add_video(self):
         """Put a video on the selected song, then line it up with that song's music by sound."""
@@ -868,7 +916,7 @@ class StudioWindow(TaskMixin, QMainWindow):
         p = self.project
         out = []
         for i, m in enumerate(p.markers):
-            ext = st.clip_extent(m) if m.clip.get("path") else None
+            ext = st.clip_extent(m)
             if not ext:
                 continue
             start, end = ext
@@ -965,10 +1013,9 @@ class StudioWindow(TaskMixin, QMainWindow):
             for w in (self.f_time, self.f_artist, self.f_title, self.f_visual, self.b_clip, self.b_cover, self.b_nocover, self.b_del, self.b_info):
                 w.setEnabled(m is not None)
             if rebuild_lists:
-                for combo in (self.f_visual, self.single):
-                    combo.clear()
-                    for sh in self.shaders.all():
-                        combo.addItem(sh.name, sh.id)
+                self.single.clear()
+                for sh in self.shaders.all():
+                    self.single.addItem(sh.name, sh.id)
                 self.library.rebuild()
             if m:
                 first_marker = bool(p.markers) and p.markers[0].uid == m.uid
@@ -976,8 +1023,12 @@ class StudioWindow(TaskMixin, QMainWindow):
                 self.f_time.setValue(m.time)
                 self.f_artist.setText(m.artist); self.f_title.setText(m.title)
                 self.f_cover.setText("none" if m.cover == "none" else Path(m.cover).name if m.cover else ("file's cover" if first_marker and self.file_cover else "none"))
-                self.f_visual.setCurrentIndex(max(0, self.f_visual.findData(resolved.get(m.uid, ""))))
+                self._fill_visual_combo(m)
                 lab = labels.get(m.uid, "")
+                shown = "@clip" if st.clip_active(m) else ("@video" if lab.startswith("Source video") else resolved.get(m.uid, ""))
+                self.f_visual.blockSignals(True)
+                self.f_visual.setCurrentIndex(max(0, self.f_visual.findData(shown)))
+                self.f_visual.blockSignals(False)
                 has_clip = bool(m.clip.get("path"))
                 self.cbox.setVisible(has_clip)
                 if has_clip:
@@ -986,7 +1037,8 @@ class StudioWindow(TaskMixin, QMainWindow):
                     self.c_start.setValue(float(m.clip.get("start", m.time)))
                     self.c_speed.setValue(float(m.clip.get("speed", 1.0)))
                     self.c_loop.setChecked(bool(m.clip.get("loop")))
-                    self.c_note.setText(self._clip_notes.get(m.uid, ""))
+                    self.c_note.setText(self._clip_notes.get(m.uid, "") if st.clip_active(m) else
+                                        "Not shown right now: a visual is chosen for this song. Pick “▶ Video” in the Visual list to use it again.")
                 self.f_visual_note.setText(lab if lab.startswith(("Source video", "Clip:", "Video:")) else "")
                 first = bool(p.markers) and p.markers[0].uid == m.uid
                 self.tbox.setEnabled(not first)

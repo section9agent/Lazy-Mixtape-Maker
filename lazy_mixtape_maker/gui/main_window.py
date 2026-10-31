@@ -201,6 +201,8 @@ class MainWindow(TaskMixin, QMainWindow):
         self.a_add_folder = act("Add folder", self.add_folder_dialog, "Ctrl+Shift+I", "Add every song in a folder", "▤")
         self.a_locate = act("Find missing songs…", self.locate_songs)
         self.a_gen = act("Generate mix", self.generate, "Ctrl+G", "Let the AI build (or rebuild) the mix", "✦")
+        self.a_settings = act("Project settings…", self.project_settings, "Ctrl+Shift+G",
+                              "The same options as when you add a folder: style, blends, tempo, keys, effects…")
         self.a_refresh = act("Refresh AI suggestions", self.refresh_ai, None, "Re-pick everything you haven't changed by hand")
         self.a_play = act("Play", self.toggle_play, "Space", None, "▶")
         self.a_stop = act("Stop", self.stop, None, None, "■")
@@ -231,7 +233,7 @@ class MainWindow(TaskMixin, QMainWindow):
         for a in (self.a_undo, self.a_redo, None, self.a_info, self.a_del):
             e.addAction(a) if a else e.addSeparator()
         mx = m.addMenu("&Mix")
-        for a in (self.a_gen, self.a_refresh, None, self.a_play, self.a_stop):
+        for a in (self.a_gen, self.a_settings, self.a_refresh, None, self.a_play, self.a_stop):
             mx.addAction(a) if a else mx.addSeparator()
         tm = m.addMenu("&Tools")
         tm.addAction(self.a_vpreview)
@@ -410,6 +412,17 @@ class MainWindow(TaskMixin, QMainWindow):
         if dlg.exec():
             v = dlg.values()
             st.edit_info(sid, v["artist"], v["title"], v["cover"])
+
+    def project_settings(self):
+        """The Generate-mix options on their own: change them without starting the mix over (unless you tick the box)."""
+        st = self.state
+        dlg = GenerateDialog(st.plan.settings, False, self, playlist=False, project=True)
+        if dlg.exec():
+            st.apply_settings(dlg.result_settings(), dlg.rebuild.isChecked())
+            if dlg.rebuild.isChecked():
+                self.statusBar().showMessage("Mix rebuilt with the new settings", 4000)
+            else:
+                self.statusBar().showMessage("Settings applied; your edits and song order were kept", 4000)
 
     def remove_selected(self):
         i = self.state.sel

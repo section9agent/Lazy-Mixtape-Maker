@@ -105,7 +105,12 @@ class StudioProject:
         if not m.clip:
             return
         for k, v in fields.items():
-            if k == "start":
+            if k == "off":                           # True: a visual is used instead; the video stays here to switch back to
+                if v:
+                    m.clip["off"] = True
+                else:
+                    m.clip.pop("off", None)
+            elif k == "start":
                 m.clip["start"] = float(v)
             elif k == "speed":
                 m.clip["speed"] = float(min(4.0, max(0.1, v)))
@@ -149,9 +154,14 @@ def _clip_duration(path: str) -> float:
     return _durations[path]
 
 
+def clip_active(m: "Marker") -> bool:
+    """The song shows its own placed video (not switched to a visual)."""
+    return bool(m.clip and m.clip.get("path") and not m.clip.get("off"))
+
+
 def clip_extent(m: "Marker") -> tuple[float, float] | None:
     """(start, end) on the timeline of the video placed on a song, or None. A looping clip has no end of its own."""
-    if not (m.clip and m.clip.get("path")):
+    if not clip_active(m):
         return None
     d = _clip_duration(m.clip["path"])
     sp = float(m.clip.get("speed", 1.0)) or 1.0
@@ -427,7 +437,7 @@ def build_segments(p: StudioProject, shaders: ShaderLibrary, seconds: float,
         else:
             cover = m.cover if m.cover and Path(m.cover).is_file() else (file_cover if m.uid == "open" else None)
         seg = Segment(m.uid, t, sid, m.artist, m.title, cover, trans=vs.transitions.get(m.uid))
-        if m.clip and m.clip.get("path"):
+        if clip_active(m):
             sp = float(m.clip.get("speed", 1.0)) or 1.0
             seg.video, seg.vspeed, seg.vloop = m.clip["path"], sp, bool(m.clip.get("loop"))
             seg.vstart = (t - float(m.clip.get("start", t))) * sp      # where in the video this song begins
@@ -445,7 +455,7 @@ def visual_labels(p: StudioProject, shaders: ShaderLibrary) -> dict[str, str]:
     out = {}
     for sg in segs:
         m = p.find(sg.uid)
-        if m is not None and m.clip and sg.video == m.clip.get("path"):
+        if m is not None and clip_active(m) and sg.video == m.clip.get("path"):
             out[sg.uid] = "Video: " + Path(sg.video).name
         elif sg.video and sg.video == p.audio:
             out[sg.uid] = "Source video"

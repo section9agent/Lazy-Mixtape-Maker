@@ -13,11 +13,13 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDialogButtonBo
 from ..video import AudioTexture
 from ..visuals import Shader, ShaderLibrary, shader_to_json
 from .dialogs import AddVisualDialog, EditShaderDialog
+from ..remix import reacts_to_audio
+from .remix_studio import RemixStudio
 from .workers import FrameWorker
 
 ENERGY = (("calm", "Calm"), ("mid", "Medium"), ("high", "Intense"))
 ORIGINS = {"builtin": "Built in", "pasted": "Pasted code", "file": "Imported file", "shadertoy-json": "Shadertoy JSON",
-           "shadertoy-api": "Shadertoy link"}
+           "shadertoy-api": "Shadertoy link", "remix": "Remix"}
 
 
 class CodeDialog(QDialog):
@@ -113,12 +115,14 @@ class ShaderManager(QWidget):
         form.addRow(self.info)
         right.addLayout(form)
         self.b_code = QPushButton("View/Edit Code")
+        self.b_remix = QPushButton("♪ Remix…")
+        self.b_remix.setToolTip("Shader Remix Studio: make this visual react to the music (zoom, flash, colour, shake…).")
         self.b_media = QPushButton("Download missing files")
         self.b_media.setToolTip("Try to download the textures / clips this shader needs, and check the shader's folder for files you added.")
         self.b_folder = QPushButton("Open its folder")
         self.b_folder.setToolTip("The folder that holds this shader's own files.")
         crow = QHBoxLayout()
-        crow.addWidget(self.b_code); crow.addWidget(self.b_media); crow.addWidget(self.b_folder); crow.addStretch(1)
+        crow.addWidget(self.b_code); crow.addWidget(self.b_remix); crow.addWidget(self.b_media); crow.addWidget(self.b_folder); crow.addStretch(1)
         right.addLayout(crow)
         self.warn = QLabel()
         self.warn.setWordWrap(True)
@@ -136,6 +140,7 @@ class ShaderManager(QWidget):
         self.b_export.clicked.connect(self.export)
         self.b_code.clicked.connect(self.view_code)
         self.b_media.clicked.connect(self.get_media)
+        self.b_remix.clicked.connect(self.remix)
         self.b_folder.clicked.connect(self.open_folder)
         self.b_backup.clicked.connect(self.backup)
         self.b_restore.clicked.connect(self.restore)
@@ -159,7 +164,8 @@ class ShaderManager(QWidget):
         for sh in self.shaders.all():
             tag = dict(ENERGY).get(sh.energy, "")
             it = QListWidgetItem(f"{sh.name}{' ⚠' if sh.warnings else ''}\n{ORIGINS.get(sh.origin, sh.origin)}"
-                                 f"{' · ' + sh.author if sh.author else ''} · {tag}")
+                                 f"{' · ' + sh.author if sh.author else ''} · {tag}"
+                                 f"{' · ♪ reacts to music' if reacts_to_audio(sh) else ' · static'}")
             it.setData(Qt.ItemDataRole.UserRole, sh.id)
             pm = self.thumbs.get(sh)
             if pm:
@@ -184,7 +190,7 @@ class ShaderManager(QWidget):
         self.name.setEnabled(bool(sh) and not sh.builtin)
         self.energy.setEnabled(bool(sh) and not sh.builtin)
         self.b_remove.setEnabled(bool(sh) and not sh.builtin)
-        for b in (self.b_export, self.b_code, self.b_use, self.b_restart, self.b_play):
+        for b in (self.b_export, self.b_code, self.b_use, self.b_restart, self.b_play, self.b_remix):
             b.setEnabled(bool(sh))
         if sh:
             self.name.setText(sh.name)
@@ -225,6 +231,17 @@ class ShaderManager(QWidget):
                 notes.append(self.shaders.media_instructions(dlg.added.id))
             if notes:
                 QMessageBox.information(self, "Lazy Mixtape Maker", "Added, with a note:\n\n" + "\n\n".join(notes))
+
+    def remix(self):
+        sh = self.current()
+        if not sh:
+            return
+        dlg = RemixStudio(self.shaders, sh, self)
+        dlg.exec()
+        if dlg.saved:
+            self.thumbs.forget(dlg.saved.id)
+            self.rebuild(dlg.saved.id)
+            self.changed.emit()
 
     def get_media(self):
         sh = self.current()

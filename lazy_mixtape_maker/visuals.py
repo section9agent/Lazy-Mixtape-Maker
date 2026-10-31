@@ -116,6 +116,8 @@ class Shader:
     # kind is "buffer:A".."buffer:D", "audio", "keyboard", "noise", "texture:<file>" or "video:<file>".
     # Empty = just `source`.
     passes: list[dict] = field(default_factory=list)
+    # Set on remixes (see remix.py): {"base": {"name", "source", "passes"}, "spec": {...}} so the remix can be re-tuned.
+    remix: dict = field(default_factory=dict)
 
     @property
     def builtin(self) -> bool:
@@ -483,7 +485,7 @@ class ShaderLibrary:
     # -- writing
     def add(self, name: str, source: str, *, author: str = "", origin: str = "pasted", url: str = "",
             warnings: list[str] | None = None, energy: str = "mid", check: bool = True,
-            passes: list[dict] | None = None) -> Shader:
+            passes: list[dict] | None = None, remix: dict | None = None) -> Shader:
         if check:
             err = validate(source, passes)
             if err:
@@ -497,7 +499,7 @@ class ShaderLibrary:
                 return ex
         sh = Shader(id=uuid.uuid4().hex[:10], name=(name or "Imported shader").strip()[:80], source=source,
                     author=author, origin=origin, url=url, energy=energy, warnings=warnings or [],
-                    added=time.strftime("%Y-%m-%dT%H:%M:%S"), passes=passes or [])
+                    added=time.strftime("%Y-%m-%dT%H:%M:%S"), passes=passes or [], remix=remix or {})
         self._save(sh)
         return sh
 
@@ -573,6 +575,43 @@ class ShaderLibrary:
         source, passes = build_passes(common, buffers, image)
         return self.add(name or "Imported shader", source, origin="pasted", passes=passes)
 
+    # -- remixes (see remix.py)
+    def remix_base(self, sh: Shader) -> dict:
+        """The un-remixed code a remix of `sh` starts from (for a remix: the code it was made from)."""
+        if sh.remix.get("base"):
+            return sh.remix["base"]
+        return {"name": sh.name, "source": sh.source, "passes": [dict(p) for p in sh.passes], "energy": sh.energy}
+
+    def add_remix(self, base: Shader, spec: dict, name: str = "") -> Shader:
+        """Save a new visual: `base` made to react to the music according to `spec`."""
+        from . import remix as rmx
+
+        b = self.remix_base(base)
+        spec = rmx.normalize_spec(spec)
+        source, passes = rmx.apply(b["source"], b["passes"], spec)
+        nm = (name or f"{b['name']} (remix)").strip()
+        return self.add(nm, source, author=base.author, origin="remix", url=base.url if not base.builtin else "",
+                        energy="high" if len([1 for m in spec["mods"].values() if m["on"]]) > 3 else "mid",
+                        passes=passes, remix={"base": b, "spec": spec})
+
+    def update_remix(self, sid: str, spec: dict, name: str | None = None) -> Shader:
+        from . import remix as rmx
+
+        sh = self._user.get(sid)
+        if sh is None or not sh.remix.get("base"):
+            raise ValueError("That visual isn't a remix.")
+        b = sh.remix["base"]
+        spec = rmx.normalize_spec(spec)
+        source, passes = rmx.apply(b["source"], b["passes"], spec)
+        err = validate(source, passes)
+        if err:
+            raise ShaderError(err)
+        sh.source, sh.passes, sh.remix = source, passes, {"base": b, "spec": spec}
+        if name and name.strip():
+            sh.name = name.strip()[:80]
+        self._save(sh)
+        return sh
+
     def rename(self, sid: str, name: str) -> None:
         sh = self._user[sid]
         sh.name = name.strip() or sh.name
@@ -600,6 +639,7 @@ class ShaderLibrary:
         if err:
             raise ShaderError(err)
         sh.source, sh.passes = source, passes
+        sh.remix = {}                       # hand-edited code: it no longer matches the remix settings
         self._save(sh)
         return sh
 

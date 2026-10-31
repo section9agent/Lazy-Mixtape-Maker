@@ -83,6 +83,8 @@ Use **Generate mix** (Ctrl+G) to build, or rebuild, the mix. Rebuilding replaces
 | **Match keys** | Shifts a song by up to 2 semitones so it sounds good with the song before it. |
 | **Let the AI add effects** | Lets the AI use echo, delay, reverb, filter sweeps, flanger, backspin, cut and stutter. |
 
+**Project settings…** (Mix menu, Ctrl+Shift+G) opens these same options at any time, without starting over. With **Rebuild the whole mix with these settings now** unticked (the default), the settings are applied to the mix as it is: tempos, blends, key matching and the AI's effects are refreshed, while your song order and your hand edits (trims, your own effects, your own transitions) stay. Tick the box to make the mix again from scratch. Changes can be undone.
+
 **Refresh AI suggestions** (Mix menu) redoes everything you haven't changed by hand and keeps your own edits.
 
 ---
@@ -208,7 +210,7 @@ Settings are in the **Visuals** tab at the bottom:
 
 ### Video files in a mix
 
-Add video files (mp4, mkv, mov, webm, avi, m4v) like any song. Their sound is mixed and beat-matched as usual, and **in the exported video the file's own picture is shown instead of a visual**, following the same tempo changes as the sound. Songs that are plain audio keep getting visuals, so you can mix both kinds. In **Video transitions → Default transition** the option **Use video files as the picture** turns this off. A visual you pick for a video song in the **Visual** tab wins over its video. In the **Visual** tab, **Use a video clip…** shows any video file (looped) while a song plays.
+Add video files (mp4, mkv, mov, webm, avi, m4v) like any song. Their sound is mixed and beat-matched as usual, and **in the exported video the file's own picture is shown instead of a visual**, following the same tempo changes as the sound. Songs that are plain audio keep getting visuals, so you can mix both kinds. In **Video transitions → Default transition** the option **Use video files as the picture** turns this off. In the **Visual** tab, the list of a video song starts with **▶ This song's own video**: pick any visual to show that instead of the video, and pick **▶ This song's own video** to switch back. A clip you chose with **Use a video clip…** is remembered the same way (**▶ Video clip: …**), so you can try a visual and go back. In the **Visual** tab, **Use a video clip…** shows any video file (looped) while a song plays.
 
 ### Video transitions
 
@@ -250,6 +252,16 @@ Open the **Shader library** tab (bottom of the main window, or inside the Visual
 - **Export…**: save a visual as a file to back it up or share it.
 - **Remove**: delete one of your own visuals. Built-ins can't be removed.
 - **Use for the whole video**: sets the video to one visual.
+
+### Shader Remix Studio: make a visual react to the music
+
+Many Shadertoy visuals just animate and ignore your music. The list says **static** for those and **♪ reacts to music** for the ones that listen. Select any visual and click **♪ Remix…** (also in the studio's Shader library) to open the **Shader Remix Studio**.
+
+- Two pictures play side by side: the **Original** and your **Remix**, both fed by a made-up beat loop (or silence, to compare).
+- Tick the effects you want: **Beat zoom**, **Flash**, **Colour shift**, **Shake**, **RGB split**, **Wobble**, **Kaleidoscope**, **Time push** (the visual's own animation speeds up and jumps with the music) and **Contrast pump**. For each, set the **Amount** and which part of the music drives it: **Bass (kick)**, **Mids**, **Treble (hats)** or the **Whole sound**.
+- **Start from a preset…** (Gentle, Club, Wild) sets a good starting point; **Strength** scales everything (turn it up for quiet music).
+- **Save as new visual** adds the remix to your library (the original is untouched), **♪ reacts to music**, and it can be used anywhere a visual can. Open a remix again and use **Update this remix** to re-tune it. Remixing a remix starts again from the original code. Editing a remix's code by hand turns it into an ordinary visual.
+- Remixes work with multi-pass shaders too (they use a free input for the music); if all four inputs of the Image pass are taken, it says so. They also travel with sessions and backups.
 
 ### Adding a visual: **Add from Shadertoy…**
 
@@ -298,9 +310,11 @@ Instead of a visual, a song's section can show a video of your own. Select a mar
 - **Adjust by hand**: drag the video's bar in the **video lane** under the waveform, or type its start time. The **−1 s / −100 ms / −10 ms / −1 ms** and **+** buttons nudge it in milliseconds. Play to check it against the music.
 - **Speed**: change the playback speed (0.25x to 4x, with nudge buttons and a reset to 1x). **Loop** repeats a short video.
 - The video's own sound is **never** used: it is muted, and the exported soundtrack is only your audio.
-- Choosing a visual for that song again removes the video. Everything else (transitions, cards, undo/redo, saving in the `.lmv`) works as before.
+- **Visual or video:** the song's **Visual** list starts with **▶ Video: name** (and **▶ The file's own video** when you opened a video file). Pick any visual to show that instead; the video stays on the song (it isn't drawn on the video lane while a visual is chosen) and **▶ Video** switches back to it. **Remove** (under “Video on this song”) deletes it. Everything else (transitions, cards, undo/redo, saving in the `.lmv`) works as before.
 
 ### Video settings
+**Project settings…** (Edit menu, toolbar, Ctrl+Shift+G) gathers them in one window: how the visuals are chosen, size, frame rate, quality, blend, the cover card, using the file's own video, and the default transition. They are also in the side panel.
+
 - **Visual blend**: how many seconds the visuals take to blend at each song change (the *Length* of a transition set to Automatic).
 - **Default transition between songs**: one of the 20 transitions with all its controls (see [Video transitions](#video-transitions)). Select a song to give *its* transition different settings under **Transition into this song**.
 - **Video files**: if the file you opened is a video, its own picture is shown, in sync with its sound (**Use the file's own video as the picture** turns it off). Pick a visual for a song to replace it, or **Video clip…** to show another video file (looped) for that song.
@@ -334,6 +348,7 @@ Very long files (over about 40 minutes) work too; the music-reactive part of the
 | Ctrl+I / Ctrl+Shift+I | Add songs / Add folder |
 | Ctrl+Shift+E | Edit song info (cover, artist, title) |
 | Ctrl+G | Generate mix |
+| Ctrl+Shift+G | Project settings (mix window and Visualization Studio) |
 | Space | Play / pause |
 | Ctrl+E / Ctrl+Shift+E / Ctrl+Alt+E | Export audio / Export video / Export both |
 | Ctrl+Z / Ctrl+Shift+Z | Undo / Redo |

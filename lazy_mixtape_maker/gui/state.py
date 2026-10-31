@@ -182,6 +182,18 @@ class AppState(QObject):
         self.edit(fn)
         self.library_changed.emit()
 
+    def apply_settings(self, settings: MixSettings, rebuild: bool = False):
+        """Change the project's mix settings. Without `rebuild` the mix is kept (order and hand edits stay) and only what
+        is worked out from the settings (tempos, blends, key matching, AI effects) is refreshed."""
+        if rebuild:
+            self.generate(settings)
+            return
+
+        def fn(plan, library):
+            plan.settings = settings
+            planmod.recompute(plan, library)
+        self.edit(fn)
+
     def generate(self, settings: MixSettings):
         """Rebuild the whole mix from the songs currently in it (hand edits are discarded)."""
         ids = [t.song_id for t in self.plan.tracks] or list(self.lib)

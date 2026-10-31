@@ -13,9 +13,10 @@ from ..visuals import (Shader, ShaderError, ShaderLibrary, add_media, build_pass
 
 
 class GenerateDialog(QDialog):
-    def __init__(self, settings: MixSettings, has_edits: bool, parent=None, playlist: bool = False):
+    def __init__(self, settings: MixSettings, has_edits: bool, parent=None, playlist: bool = False, project: bool = False):
         super().__init__(parent)
-        self.setWindowTitle("Generate mix")
+        self.setWindowTitle("Project settings" if project else "Generate mix")
+        self.project = project
         self.playlist = playlist
         self.s = settings
         lay = QVBoxLayout(self)
@@ -61,6 +62,15 @@ class GenerateDialog(QDialog):
         lay.addLayout(form)
         for w in (self.order, self.key, self.fx):
             lay.addWidget(w)
+        self.rebuild = QCheckBox("Rebuild the whole mix with these settings now")
+        if project:
+            self.rebuild.setToolTip("Off: the settings are applied to the mix as it is (tempo, blends, keys, effects the AI "
+                                    "chose) and your hand edits and song order are kept. On: the mix is made again from scratch.")
+            lay.addWidget(self.rebuild)
+            note = QLabel("With the box off, your hand edits and the song order stay as they are. With it on, the mix starts "
+                          "over: edits to timing, effects and trims are replaced, and the AI may reorder the songs if that is ticked.")
+            note.setWordWrap(True); note.setStyleSheet("color:#8b93a1")
+            lay.addWidget(note)
         if has_edits:
             warn = QLabel("This starts the mix over: changes you made by hand to timing, effects and trims are replaced.")
             warn.setWordWrap(True); warn.setStyleSheet("color:#e0a030")
@@ -68,7 +78,7 @@ class GenerateDialog(QDialog):
         self.mode.currentIndexChanged.connect(self._sync)
         self._sync()
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        bb.button(QDialogButtonBox.StandardButton.Ok).setText("Generate")
+        bb.button(QDialogButtonBox.StandardButton.Ok).setText("Apply" if project else "Generate")
         bb.accepted.connect(self.accept); bb.rejected.connect(self.reject)
         lay.addWidget(bb)
 

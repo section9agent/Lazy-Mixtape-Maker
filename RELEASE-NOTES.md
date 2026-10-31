@@ -1,38 +1,21 @@
 ## What's new
 
-### Playlists
-- Add a playlist (`.m3u`, `.m3u8`, `.pls`, `.xspf`) with **Add playlist**, or drag it onto the window.
-- The mix keeps the playlist's order. The AI never reorders it, but it still beat-matches, blends and adds effects.
-- Songs a playlist lists that can't be found are reported and skipped.
-- The command line `mix` keeps a playlist's order too.
+### Shader Remix Studio: make visuals react to the music
+- Select any visual in the Shader library and click **♪ Remix…**. Many Shadertoy visuals ignore the music; a remix makes them move with it.
+- Pick effects: **beat zoom, flash, colour shift, shake, RGB split, wobble, kaleidoscope, time push, contrast pump**. Set how much of each, and whether it listens to the **bass, mids, treble** or the whole sound. Gentle / Club / Wild presets give a quick start.
+- The **original and the remix play side by side**, fed by a beat loop, so you can see the difference as you tune.
+- **Save as new visual** keeps the original untouched. Re-open a remix any time to re-tune it. Works with multi-pass shaders too.
+- The library now shows which visuals are **♪ reacts to music** and which are **static**.
 
-### Edit song info
-- Change a song's **cover art, artist and title**. The dialog starts with what the song has now, which is the file's own tags until you change it, and has a **Reset** button.
-- Open it from the **Song** tab, the **Song info…** button, a double-click on a song, or **Ctrl+Shift+E**.
-- Edits show in the song list, cue sheet, track list, live preview and the exported video's card.
-- A chosen cover is saved inside the session file. Edits can be undone.
-- The **Visualization Studio** has the same dialog.
+### Shader or video, your choice (and back again)
+- For a video song, or a video clip, pick any visual to show **instead of the video**, then switch back with **▶ This song's own video / ▶ Video clip**. Nothing is lost when you try a visual.
+- Works in the mix window's Visual tab and in the Visualization Studio. In the studio the placed video, its sync and its speed are kept while a visual is shown.
 
-### Shaders that need textures or videos
-- When a Shadertoy shader uses textures or video clips, the app now downloads them and saves them with the shader, in `shaders/<shader name>/`.
-- If a file can't be downloaded, you get the file name, a link to get it, and the folder to put it in. The same steps are saved in that folder as `HOW-TO-ADD-MISSING-FILES.txt`.
-- New **Download missing files** and **Open its folder** buttons in the Shader library.
-
-### Video on the Visualization Studio timeline
-- Put your own video on a song's section instead of a shader.
-- **Line up by sound** guesses where the video belongs by comparing its sound with the music.
-- Drag the video in its own lane, nudge it in **millisecond** steps, and change its **speed**.
-- The video's own sound is muted and never used in the mix.
-
-### Look and feel
-- All buttons now have a raised **3D look**.
-- The up and down arrows under the songs in the mix are now **bold**.
-
-### Changes
-- Imported shaders are now stored in a folder called `shaders` (an older `visuals` folder is renamed automatically).
-- The user manual is now also available as a **PDF**.
+### Project settings
+- **Mix window:** *Mix → Project settings…* (Ctrl+Shift+G) opens the same options as when you drop a folder, any time. By default it **keeps your song order and hand edits** and only refreshes tempos, blends, key matching and AI effects. Tick *Rebuild the whole mix* to start over. Undoable.
+- **Visualization Studio:** a **Project settings…** window (Ctrl+Shift+G) with visual mode, size, frame rate, quality, blend, cover card, source video and the default transition.
 
 ### Fixes
-- Fixed the macOS build failing in the live video preview test.
+- Windows and macOS builds: tests that don't need OpenGL no longer try to use it, and the live preview test is more patient on machines without a GPU.
 
 Everything still runs offline. Windows (.zip), macOS (.zip) and Linux (.tar.gz) builds are attached.
