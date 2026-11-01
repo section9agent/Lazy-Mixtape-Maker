@@ -1,0 +1,595 @@
+<!doctype html><meta charset='utf-8'><style>
+@page { size: A4; margin: 18mm 16mm; }
+body { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 10.5pt; line-height: 1.5; color: #1d2330; }
+h1 { font-size: 26pt; margin: 0 0 8pt; color: #b3243a; }
+h2 { font-size: 16pt; margin-top: 22pt; padding-bottom: 3pt; border-bottom: 2px solid #e3e6ee; color: #1d2330; page-break-after: avoid; }
+h3 { font-size: 12.5pt; margin-top: 14pt; color: #b3243a; page-break-after: avoid; }
+table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 9.5pt; }
+th, td { border: 1px solid #cfd4e0; padding: 4pt 6pt; vertical-align: top; text-align: left; }
+th { background: #eef0f6; }
+code { background: #eef0f6; padding: 1px 4px; border-radius: 3px; font-size: 9.5pt; }
+pre { background: #f3f4f8; padding: 8pt; border-radius: 5px; overflow-wrap: anywhere; white-space: pre-wrap; }
+hr { border: 0; border-top: 1px solid #e3e6ee; margin: 14pt 0; }
+a { color: #1f5fbf; text-decoration: none; }
+li { margin: 2pt 0; }
+tr, li { page-break-inside: avoid; }
+</style><h1 id="lazy-mixtape-maker-user-manual">Lazy Mixtape Maker: User Manual</h1>
+<p>Lazy Mixtape Maker turns a folder of your own songs into one seamless DJ-style mixtape. It works out each song's tempo, key and parts, puts the songs in a good order, matches their beats and keys, and blends them together. You can then fix anything you don't like, save your work, export the audio, and make a video with animated visuals.</p>
+<p>Everything happens on your computer. Nothing is uploaded, and no internet connection is needed. (The only optional online feature is downloading a visual from a Shadertoy link.)</p>
+<p>Works with <strong>mp3, wav, flac and m4a</strong> audio files, and with <strong>video files</strong> (mp4, mkv, mov, webm, avi, m4v), which are used for their sound and, in video exports, their picture.</p>
+<hr />
+<h2 id="contents">Contents</h2>
+<ol>
+<li><a href="#1-quick-start">Quick start</a></li>
+<li><a href="#2-the-main-window">The main window</a></li>
+<li><a href="#3-adding-songs">Adding songs</a></li>
+<li><a href="#4-generating-a-mix">Generating a mix</a></li>
+<li><a href="#5-playing-the-mix">Playing the mix</a></li>
+<li><a href="#6-editing-the-mix">Editing the mix</a></li>
+<li><a href="#7-effects">Effects</a></li>
+<li><a href="#8-saving-sharing-and-reopening">Saving, sharing and reopening</a></li>
+<li><a href="#9-exporting-audio-and-the-cue-sheet">Exporting audio and the cue sheet</a></li>
+<li><a href="#10-making-a-video">Making a video</a></li>
+<li><a href="#11-shader-library-managing-visuals">Shader library: managing visuals</a></li>
+<li><a href="#12-visualization-studio">Visualization Studio: videos for a mixtape you already have</a></li>
+<li><a href="#13-settings">Settings</a></li>
+<li><a href="#14-keyboard-shortcuts">Keyboard shortcuts</a></li>
+<li><a href="#15-command-line">Command line</a></li>
+<li><a href="#16-tips-and-troubleshooting">Tips and troubleshooting</a></li>
+</ol>
+<hr />
+<h2 id="1-quick-start">1. Quick start</h2>
+<ol>
+<li>Open the app.</li>
+<li>Drag a folder of songs onto the window (or click <strong>Add folder</strong>). Each song is analysed once; this takes a few seconds per song. When you add a <strong>folder</strong>, the Generate mix options appear first so the first mix is made the way you want.</li>
+<li>The first mix is made for you automatically. Press <strong>Play</strong>.</li>
+<li>Don't like something? Drag songs around, change blends, add effects (see <a href="#6-editing-the-mix">Editing</a>).</li>
+<li><strong>File → Save session</strong> to keep your work, <strong>Export audio</strong> for the finished mix, <strong>Export video</strong> for a visual version.</li>
+</ol>
+<hr />
+<h2 id="2-the-main-window">2. The main window</h2>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Toolbar</strong> (top)</td>
+<td>Add songs, Add folder, Generate mix, Play, Stop, Export audio, Export video, Export mix + video, Visualization Studio. The status bar shows the number of songs and the total mix length (HH:MM:SS).</td>
+</tr>
+<tr>
+<td><strong>Songs in the mix</strong> (top left)</td>
+<td>The songs in play order, with key, tempo and start time. Drag to reorder.</td>
+</tr>
+<tr>
+<td><strong>Inspector</strong> (top right)</td>
+<td>Tabs for the selected song: <strong>Song</strong>, <strong>Transition</strong>, <strong>Effects</strong>, <strong>Visual</strong>.</td>
+</tr>
+<tr>
+<td><strong>Bottom tabs</strong></td>
+<td><strong>Timeline</strong>, <strong>Cue sheet</strong>, <strong>Visuals</strong> (video settings), <strong>Shader library</strong>.</td>
+</tr>
+<tr>
+<td><strong>Status bar</strong> (bottom)</td>
+<td>Song count, tempo range and total length.</td>
+</tr>
+</tbody>
+</table>
+<p>Menus: <strong>File</strong>, <strong>Edit</strong>, <strong>Mix</strong>, <strong>Tools</strong> (Visualization Studio), <strong>Settings</strong>, <strong>Help</strong>.</p>
+<hr />
+<h2 id="3-adding-songs">3. Adding songs</h2>
+<ul>
+<li>Drag music files or folders onto the window, or use <strong>Add songs</strong> / <strong>Add folder</strong> on the toolbar.</li>
+<li>Subfolders are included when you add a folder.</li>
+<li><strong>Playlists:</strong> <strong>Add playlist</strong> (toolbar and File menu) or dropping a <code>.m3u</code>, <code>.m3u8</code>, <code>.pls</code> or <code>.xspf</code> file adds its songs <strong>in the playlist's order, and the mix keeps that order</strong>: the AI never reorders a playlist (it still beat-matches, blends and picks effects). Relative paths work, and songs the playlist lists that can't be found are reported and skipped. Songs you add afterwards go to the end. On the command line, a playlist given to <code>mix</code> is kept in order too.</li>
+<li>Each song is analysed for tempo (BPM), key, and its parts (intro, verse, chorus, bridge, outro). The result is saved in a small file next to the song (<code>Song.mp3.lmmanalysis</code>) and in the app's cache, so the same song is never analysed twice, even on another computer if you copy the file along. If the song changes, it is analysed again. A read-only music folder is fine.</li>
+<li>The first batch of songs is mixed automatically. Songs added later are placed at the end of the mix; drag them where you want them.</li>
+<li>Songs that can't be read are listed in a message and skipped.</li>
+</ul>
+<p><strong>Remove a song:</strong> select it and press <strong>Remove</strong> (or Delete). Its neighbours are blended together again.</p>
+<hr />
+<h2 id="4-generating-a-mix">4. Generating a mix</h2>
+<p>Use <strong>Generate mix</strong> (Ctrl+G) to build, or rebuild, the mix. Rebuilding replaces anything you changed by hand, and the dialog warns you before it does.</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Style</strong></td>
+<td><strong>Whole songs</strong> (the default) uses as much of every song as possible, like a DJ mixtape. <strong>Short clips</strong> plays a highlight of each song instead.</td>
+</tr>
+<tr>
+<td><strong>Clip length</strong></td>
+<td>For short clips: how long each highlight is (10–120 seconds).</td>
+</tr>
+<tr>
+<td><strong>Longest blend</strong></td>
+<td>The most bars two songs may overlap. The AI uses each song's whole outro and the next song's whole intro, up to this limit. If both songs are in full flow where they meet, it uses a shorter blend.</td>
+</tr>
+<tr>
+<td><strong>Transitions</strong></td>
+<td><strong>Let the AI choose</strong>, <strong>Bass-swap blends</strong> (the bass changes hands, DJ style), <strong>Crossfades</strong>, or <strong>Hard cuts with effects</strong>.</td>
+</tr>
+<tr>
+<td><strong>Tempo</strong></td>
+<td><strong>Let the tempo glide</strong> (best sound): each song plays at its own speed and only speeds up or slows down around a blend to meet its neighbour. <strong>Hold one tempo</strong> forces one tempo for the whole mix.</td>
+</tr>
+<tr>
+<td><strong>Cue sheet marks</strong></td>
+<td>Where the track break goes in the cue sheet: when the new song starts to come in, the middle of the blend, or when the old song has gone.</td>
+</tr>
+<tr>
+<td><strong>Biggest tempo change</strong></td>
+<td>How far a song may be sped up or slowed down to match its neighbour (default 12%). Pairs further apart than this get a cut with an effect instead of a beat-matched blend.</td>
+</tr>
+<tr>
+<td><strong>Let the AI choose the song order</strong></td>
+<td>Orders songs for the smoothest tempo and key flow. Untick to keep your order.</td>
+</tr>
+<tr>
+<td><strong>Match keys</strong></td>
+<td>Shifts a song by up to 2 semitones so it sounds good with the song before it.</td>
+</tr>
+<tr>
+<td><strong>Let the AI add effects</strong></td>
+<td>Lets the AI use echo, delay, reverb, filter sweeps, flanger, backspin, cut and stutter.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Project settings…</strong> (Mix menu, Ctrl+Shift+G) opens these same options at any time, without starting over. With <strong>Rebuild the whole mix with these settings now</strong> unticked (the default), the settings are applied to the mix as it is: tempos, blends, key matching and the AI's effects are refreshed, while your song order and your hand edits (trims, your own effects, your own transitions) stay. Tick the box to make the mix again from scratch. Changes can be undone.</p>
+<p><strong>Refresh AI suggestions</strong> (Mix menu) redoes everything you haven't changed by hand and keeps your own edits.</p>
+<hr />
+<h2 id="5-playing-the-mix">5. Playing the mix</h2>
+<ul>
+<li><strong>Play / Pause</strong> (Space) renders a preview of the whole mix and plays it. It re-renders after you edit something.</li>
+<li><strong>Stop</strong> returns to the start.</li>
+<li>Click the ruler or empty timeline space to move the playhead.</li>
+<li>To listen to a transition, put the playhead just before it and press Play.</li>
+</ul>
+<hr />
+<h2 id="6-editing-the-mix">6. Editing the mix</h2>
+<p>Everything you change by hand is remembered, and the AI will not overwrite it when it refreshes. <strong>Undo</strong> (Ctrl+Z) and <strong>Redo</strong> (Ctrl+Shift+Z) work for every edit, and a drag counts as one step.</p>
+<h3 id="the-timeline">The timeline</h3>
+<p>Songs sit in two alternating rows, like two decks. Shaded areas between songs are the blends. Each song shows:</p>
+<ul>
+<li>a <strong>dark waveform</strong> (80% black) over its colour on every song,</li>
+<li>its <strong>parts</strong> (intro, verse, chorus…) in a coloured strip along the bottom,</li>
+<li>its <strong>effects</strong> as small coloured blocks underneath.</li>
+</ul>
+<p>Zoom with <strong>−</strong>, <strong>+</strong>, <strong>Fit</strong>, or Ctrl + mouse wheel.</p>
+<table>
+<thead>
+<tr>
+<th>Drag…</th>
+<th>To…</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The <strong>middle</strong> of a song</td>
+<td>Make the blend with the previous song longer or shorter.</td>
+</tr>
+<tr>
+<td>A song's <strong>left edge</strong></td>
+<td>Start the song later or earlier. The audio stays where it is in the mix; the blend with the previous song gets shorter or longer by the same amount.</td>
+</tr>
+<tr>
+<td>A song's <strong>right edge</strong></td>
+<td>End the song earlier or later.</td>
+</tr>
+<tr>
+<td>An <strong>effect block</strong></td>
+<td>Move the effect in time.</td>
+</tr>
+</tbody>
+</table>
+<p>Movements snap to beats.</p>
+<h3 id="song-tab">Song tab</h3>
+<ul>
+<li><strong>Edit song info (cover, artist, title)…</strong> (also the <strong>Song info…</strong> button under the list, a double-click on a song, or Edit → Edit song info, Ctrl+Shift+E): change the song's cover art, artist and title. The window starts with what the song has now, which is what the audio file's own tags say until you change it. <strong>Choose picture…</strong>, <strong>No cover</strong> or <strong>Use the file's cover</strong> set the cover; <strong>Reset everything to the file's own information</strong> goes back to the tags. The change shows in the list, the cue sheet and track list, the live preview and the exported video's card, is saved in the session (a chosen picture is kept inside the <code>.lmm</code>), and can be undone. The Visualization Studio has the same dialog.</li>
+<li><strong>Starts at / Ends at</strong>: type exact times, or pick a part from the list and press <strong>Start here</strong> / <strong>End here</strong>.</li>
+<li><strong>Back to the AI's choice</strong>: resets the trim.</li>
+<li>Shows the song's tempo, the speed it plays at, and its key (and any pitch shift).</li>
+</ul>
+<h3 id="transition-tab-the-blend-after-the-selected-song">Transition tab (the blend after the selected song)</h3>
+<ul>
+<li><strong>Style</strong>: bass-swap blend, crossfade, cut with an effect, or hard cut.</li>
+<li><strong>Blend length</strong>: in beats (4 beats = 1 bar).</li>
+<li><strong>Effects at this transition</strong>: untick to turn off every effect around this blend, both the AI's and yours. They are only muted, so ticking it again brings them back.</li>
+<li><strong>Back to the AI's choice</strong>.</li>
+</ul>
+<h3 id="order">Order</h3>
+<p>Drag songs in the <strong>Songs in the mix</strong> list, or use the bold <strong>up / down arrow</strong> buttons under the list.</p>
+<h3 id="visual-tab">Visual tab</h3>
+<p>Pick the visual for the selected song (used in video export). See <a href="#10-making-a-video">Making a video</a>.</p>
+<hr />
+<h3 id="preview-the-video-live">Preview the video live</h3>
+<p><strong>Preview video</strong> (Ctrl+Shift+P, in the toolbar and the Tools menu) opens a window that shows the visuals in real time, using the same drawing code as the exporter, so the blends and the cover/artist/title card match the final video. It follows the timeline: press <strong>Play</strong> (in either window) and it plays; drag the playhead and it scrubs. Press Play once so the mix is rendered, and music-reactive visuals then react to your sound. Changing a song's visual, the visual mode or the overlay updates the picture straight away. It's drawn at a reduced size to stay smooth; the export is full quality.</p>
+<h2 id="7-effects">7. Effects</h2>
+<p>Open the <strong>Effects</strong> tab for the selected song. Use <strong>Add at start</strong> or <strong>Add at end</strong>, then adjust the effect's timing and settings. Select an effect in the list or click its block on the timeline. <strong>Remove effect</strong> deletes it.</p>
+<table>
+<thead>
+<tr>
+<th>Effect</th>
+<th>What it does</th>
+<th>Main settings</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Echo</strong></td>
+<td>Repeating echoes that fade away.</td>
+<td>beats, feedback, level, damp</td>
+</tr>
+<tr>
+<td><strong>Delay (ping-pong)</strong></td>
+<td>Echoes that bounce left and right.</td>
+<td>beats, feedback, level, damp</td>
+</tr>
+<tr>
+<td><strong>Reverb</strong></td>
+<td>A sense of space.</td>
+<td>decay, level, damp</td>
+</tr>
+<tr>
+<td><strong>Filter sweep</strong></td>
+<td>Sweeps a low-pass or high-pass filter.</td>
+<td>mode, start Hz, end Hz, q</td>
+</tr>
+<tr>
+<td><strong>Flanger</strong></td>
+<td>A swirling, jet-like sound.</td>
+<td>rate, depth, base</td>
+</tr>
+<tr>
+<td><strong>Backspin</strong></td>
+<td>Rewinds like a record being pulled back, then stops.</td>
+<td>speed</td>
+</tr>
+<tr>
+<td><strong>Cut (crossfader chop)</strong></td>
+<td>Chops the sound in time, like a DJ working the crossfader.</td>
+<td>mode, division, duty, floor</td>
+</tr>
+<tr>
+<td><strong>Stutter (beat repeat)</strong></td>
+<td>Repeats a slice of the music, and can speed up into a roll.</td>
+<td>beats, roll, level</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Cut modes:</strong> <em>gate</em> closes the sound completely on every slice; <em>bass_kill</em> removes the lows on closed slices; <em>highs_kill</em> removes the highs. <strong>division</strong> is the slice length in beats, and <strong>duty</strong> is how much of each slice stays open.</p>
+<p>The AI picks effects too (you can turn that off in Generate mix). Its choices are normal effects: edit, move or delete them. Effects marked as yours are never replaced.</p>
+<hr />
+<h2 id="8-saving-sharing-and-reopening">8. Saving, sharing and reopening</h2>
+<ul>
+<li><strong>Save session</strong> (Ctrl+S) writes a <code>.lmm</code> file. <strong>Open session</strong> (Ctrl+O) brings it back with every edit.</li>
+<li><strong>To share a mix with a friend:</strong> give them the <code>.lmm</code> file and a folder with the same songs. They open the file, point the app at their folder if it asks, and get exactly your mix to play or change. Songs are found by their content, so renamed or moved files are fine.</li>
+<li>Visuals you imported travel inside the session file.</li>
+<li>If songs can't be found, use <strong>File → Find missing songs…</strong> and choose the folder that has them.</li>
+</ul>
+<hr />
+<h2 id="9-exporting-audio-and-the-cue-sheet">9. Exporting audio and the cue sheet</h2>
+<p><strong>Export audio</strong> (Ctrl+E) saves the finished mix as:</p>
+<table>
+<thead>
+<tr>
+<th>Format</th>
+<th>Quality</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>WAV</strong></td>
+<td>24-bit</td>
+</tr>
+<tr>
+<td><strong>MP3</strong></td>
+<td>320 kbps</td>
+</tr>
+<tr>
+<td><strong>FLAC</strong></td>
+<td>24-bit, best (maximum) compression</td>
+</tr>
+</tbody>
+</table>
+<p>Along with the audio, a <strong>.cue</strong> file and a plain-text <strong>track list</strong> are saved next to it, with a track break where each song comes in. Use <strong>Cue sheet</strong> (bottom tab) to see the list, <strong>Copy track list</strong> to paste it somewhere, or <strong>Save cue sheet…</strong> to save it on its own.</p>
+<hr />
+<h2 id="10-making-a-video">10. Making a video</h2>
+<p><strong>Export mix + video</strong> (Ctrl+Alt+E) saves the audio (with its cue sheet) and the MP4 together. The mix is rendered only once.</p>
+<p><strong>Export video</strong> (Ctrl+Shift+E) makes an <strong>MP4</strong> (H.264 video + AAC audio) of your mix. Visuals blend into each other exactly as the music does, and the current song's <strong>cover art, artist and title</strong> appear in the lower-left corner.</p>
+<p>Settings are in the <strong>Visuals</strong> tab at the bottom:</p>
+<table>
+<thead>
+<tr>
+<th>Visual mode</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Let the app choose</strong></td>
+<td>Picks visuals to suit each song: calm ones for quiet songs, intense ones for loud songs.</td>
+</tr>
+<tr>
+<td><strong>Random visual for each song</strong></td>
+<td>A different random visual per song. It draws from the whole library and avoids recent repeats, so every visual gets a turn.</td>
+</tr>
+<tr>
+<td><strong>I choose per song</strong></td>
+<td>You pick each song's visual in the <strong>Visual</strong> tab.</td>
+</tr>
+<tr>
+<td><strong>One visual for the whole video</strong></td>
+<td>One visual throughout.</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Pick different random visuals</strong> reshuffles the random choices.</li>
+<li><strong>Size</strong>: 854×480, 1280×720, 1920×1080 or 1080×1080 (square). <strong>Frame rate</strong>: 24, 30 or 60 fps.</li>
+<li><strong>Show cover art, artist and title</strong> turns the lower-left card on or off for this video. See also <a href="#13-settings">Settings</a>.</li>
+</ul>
+<h3 id="video-files-in-a-mix">Video files in a mix</h3>
+<p>Add video files (mp4, mkv, mov, webm, avi, m4v) like any song. Their sound is mixed and beat-matched as usual, and <strong>in the exported video the file's own picture is shown instead of a visual</strong>, following the same tempo changes as the sound. Songs that are plain audio keep getting visuals, so you can mix both kinds. In <strong>Video transitions → Default transition</strong> the option <strong>Use video files as the picture</strong> turns this off. In the <strong>Visual</strong> tab, the list of a video song starts with <strong>▶ This song's own video</strong>: pick any visual to show that instead of the video, and pick <strong>▶ This song's own video</strong> to switch back. A clip you chose with <strong>Use a video clip…</strong> is remembered the same way (<strong>▶ Video clip: …</strong>), so you can try a visual and go back. In the <strong>Visual</strong> tab, <strong>Use a video clip…</strong> shows any video file (looped) while a song plays.</p>
+<h3 id="video-transitions">Video transitions</h3>
+<p>The <strong>Video transitions</strong> tab chooses how the picture changes at each song change. There are 20:</p>
+<ul>
+<li><strong>Classic (12):</strong> crossfade, dip to black, dip to white, wipe, push / slide, circle iris, clock wipe, zoom through, noise dissolve, pixelate, blinds, swirl.</li>
+<li><strong>♪ Rhythm (8):</strong> beat zoom, beat flash, beat shake + RGB split, glitch slices, bass ripple, beat strobe, beat mosaic, kick spin. These measure the kick and bass of your music at every frame and pulse with it.</li>
+<li><strong>🎲 Random</strong> (all 20, classic only, or rhythm only) picks a different one at every change.</li>
+</ul>
+<p>Every transition has the same controls (the ones that don't apply to the chosen transition are greyed out):</p>
+<table>
+<thead>
+<tr>
+<th>Control</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Length</strong></td>
+<td>Seconds the transition takes. <em>Automatic</em> follows the audio blend (mixes) or the <em>Visual blend</em> setting (studio).</td>
+</tr>
+<tr>
+<td><strong>Angle</strong></td>
+<td>Direction of wipes, pushes and blinds; start angle of the clock wipe.</td>
+</tr>
+<tr>
+<td><strong>Softness</strong></td>
+<td>How soft the edge of a wipe, iris, clock wipe or dissolve is.</td>
+</tr>
+<tr>
+<td><strong>Intensity</strong></td>
+<td>Strength: zoom amount, pixel size, swirl, shake, glitch, flash.</td>
+</tr>
+<tr>
+<td><strong>Beat sensitivity</strong></td>
+<td>How strongly the ♪ transitions react to the music (0 = ignore it).</td>
+</tr>
+<tr>
+<td><strong>Easing</strong></td>
+<td>Smooth, linear, ease in or ease out.</td>
+</tr>
+</tbody>
+</table>
+<p>The left side sets the <strong>default for every song change</strong>. Select a song and use the right side to give <strong>its own transition</strong> different settings (untick <em>Use the default transition</em>). Watch it live in <strong>Preview video</strong>.</p>
+<p>Video export needs a graphics card or driver with <strong>OpenGL 3.3</strong>. Rendering takes longer than the length of the mix on slower computers, and you can cancel at any time.</p>
+<hr />
+<h2 id="11-shader-library-managing-visuals">11. Shader library: managing visuals</h2>
+<p>The visuals are <em>Shadertoy</em> shaders (small programs that draw animated pictures). Eight are built in. You can add more from <a href="https://www.shadertoy.com">shadertoy.com</a>. They are saved on your computer and work offline afterwards. Music-reactive shaders react to your mix.</p>
+<p>Open the <strong>Shader library</strong> tab (bottom of the main window, or inside the Visualization Studio).</p>
+<ul>
+<li><strong>List</strong>: every visual with a thumbnail.</li>
+<li><strong>Live preview</strong>: the selected visual animates on the right. Use <strong>Pause</strong> and <strong>Restart</strong>.</li>
+<li><strong>Name</strong>: rename your own visuals (built-ins can't be renamed).</li>
+<li><strong>Suits</strong>: calm, medium or intense. "Let the app choose" uses this.</li>
+<li><strong>View/Edit Code</strong>: see and change a saved shader: the code of every pass and what feeds each iChannel. <strong>Save changes</strong> checks that it compiles; if it doesn't, your old version is kept. Built-in visuals are view-only.</li>
+<li><strong>Back up all…</strong> saves every visual you added (with their textures and clips) into one <code>.lmmshaders</code> file. <strong>Import backup…</strong> adds them back (ones you already have are skipped).</li>
+<li><strong>Export…</strong>: save a visual as a file to back it up or share it.</li>
+<li><strong>Remove</strong>: delete one of your own visuals. Built-ins can't be removed.</li>
+<li><strong>Use for the whole video</strong>: sets the video to one visual.</li>
+</ul>
+<h3 id="shader-remix-studio-make-a-visual-react-to-the-music">Shader Remix Studio: make a visual react to the music</h3>
+<p>Many Shadertoy visuals just animate and ignore your music. The list says <strong>static</strong> for those and <strong>♪ reacts to music</strong> for the ones that listen. Select any visual and click <strong>♪ Remix…</strong> (also in the studio's Shader library) to open the <strong>Shader Remix Studio</strong>.</p>
+<ul>
+<li>Two pictures play side by side: the <strong>Original</strong> and your <strong>Remix</strong>, both fed by a made-up beat loop (or silence, to compare).</li>
+<li>Tick the effects you want: <strong>Beat zoom</strong>, <strong>Flash</strong>, <strong>Colour shift</strong>, <strong>Shake</strong>, <strong>RGB split</strong>, <strong>Wobble</strong>, <strong>Kaleidoscope</strong>, <strong>Time push</strong> (the visual's own animation speeds up and jumps with the music) and <strong>Contrast pump</strong>. For each, set the <strong>Amount</strong> and which part of the music drives it: <strong>Bass (kick)</strong>, <strong>Mids</strong>, <strong>Treble (hats)</strong> or the <strong>Whole sound</strong>.</li>
+<li><strong>Start from a preset…</strong> (Gentle, Club, Wild) sets a good starting point; <strong>Strength</strong> scales everything (turn it up for quiet music).</li>
+<li><strong>Save as new visual</strong> adds the remix to your library (the original is untouched), <strong>♪ reacts to music</strong>, and it can be used anywhere a visual can. Open a remix again and use <strong>Update this remix</strong> to re-tune it. Remixing a remix starts again from the original code. Editing a remix's code by hand turns it into an ordinary visual.</li>
+<li>Remixes work with multi-pass shaders too (they use a free input for the music); if all four inputs of the Image pass are taken, it says so. They also travel with sessions and backups.</li>
+</ul>
+<h3 id="adding-a-visual-add-from-shadertoy">Adding a visual: <strong>Add from Shadertoy…</strong></h3>
+<p>Shadertoy has no download button, so there are three ways in:</p>
+<p><strong>Paste code.</strong> For a simple shader: open it on Shadertoy, copy the code from the editor, and paste it. (Shadertoy JSON also works.)</p>
+<p><strong>Multi-pass.</strong> For shaders with extra tabs (<strong>Common</strong>, <strong>Buffer A</strong>, <strong>Buffer B</strong>, <strong>Buffer C</strong>, <strong>Buffer D</strong>, <strong>Image</strong>):
+1. Open the <strong>Multi-pass</strong> tab.
+2. Paste each tab's code into the matching tab. Fill in only the tabs the shader has; <strong>Image</strong> is required.
+3. For each Buffer and the Image, set what <strong>iChannel0–3</strong> read. Copy this from the small boxes under each tab on Shadertoy: <strong>Music</strong> for audio, <strong>Buffer A–D</strong> for buffers (a buffer reading its own name is a feedback loop), or <strong>Nothing / noise</strong>.
+4. Click <strong>Add visual</strong>.</p>
+<p><strong>From a link.</strong> Paste the shader's web address (like <code>https://www.shadertoy.com/view/XXXXXX</code>). It's downloaded complete, with all of its passes. <strong>No account or API key is needed.</strong> An API key box is there only as a fallback. This needs internet just for the download. If a shader's author has blocked outside access, use the paste or multi-pass tabs instead.</p>
+<p><strong>Shaders that need files.</strong> When a Shadertoy shader uses textures or video clips, the app tries to download them straight away and saves them <strong>with the shader</strong>: such a shader gets its own folder, <code>shaders/&lt;shader name&gt;/</code>, holding its <code>.json</code> and its files (shaders that need nothing stay as single files in <code>shaders</code>). If a file can't be downloaded (no internet, or Shadertoy refused), the app tells you which files are missing, the link to get each one, and the folder to put it in. The same steps are saved in that folder as <code>HOW-TO-ADD-MISSING-FILES.txt</code>. Save the file there under the exact name shown, then click <strong>Download missing files</strong> (or just reopen the shader). <strong>Open its folder</strong> opens it for you.</p>
+<p>Textures and video clips: a channel can be set to <strong>Texture image…</strong> or <strong>Video clip…</strong>, which opens a file browser. For shaders you download or import, the app finds the textures and clips the code uses and shows exactly those on the right channel; if a file isn't on your computer yet, it says so and the <strong>…</strong> button next to the channel lets you pick it. Webcam, cube-map and 3D-texture inputs can't work offline and are replaced with noise. A shader's own <em>sound</em> tab is ignored: the video always uses your mix's audio. A shader's music input can be on any channel (iChannel0–3) and reacts to the mix.</p>
+<hr />
+<h2 id="12-visualization-studio">12. Visualization Studio</h2>
+<p>Already have a mixtape (made in another program, or by a DJ)? The studio makes a video for any audio file. Open it from <strong>Tools → Visualization Studio</strong> (Ctrl+Shift+V) or the toolbar.</p>
+<h3 id="steps">Steps</h3>
+<ol>
+<li><strong>Open audio</strong> (Ctrl+O): choose an mp3, wav, flac, m4a or a video file. The waveform appears, and the file's tags give the first marker. If a <code>.cue</code> file with the same name sits next to the audio, the app offers to use it.</li>
+<li><strong>Mark where the songs change.</strong> Choose any of:
+   - <strong>Import cue sheet</strong> (Ctrl+I): a <code>.cue</code> file, or a plain text list with a time at the start of each line, such as <code>12:34  Artist - Title</code> or <code>[1:02:03] Artist – Title</code>. The track list this app writes works too.
+   - <strong>Add markers by hand:</strong> double-click the waveform, right-click it, press <strong>M</strong> at the playhead, or use <strong>Add marker here</strong>.</li>
+<li><strong>Edit the markers.</strong> Click a marker (in the list or the timeline) to edit it under <strong>Selected song</strong>: start time, artist, title, cover image, and visual. <strong>Edit song info (cover, artist, title)…</strong> opens the same dialog as the mix window (the first song starts with the audio file's own tags and cover; <strong>Reset</strong> goes back to them). Drag a marker on the timeline to move it. Right-click a marker (or press Delete) to remove it.</li>
+<li><strong>Choose the visuals</strong> under <strong>Video</strong>:
+   - <strong>Let the app choose</strong>: matched to how loud each song is.
+   - <strong>Random visual for each song</strong>.
+   - <strong>I choose a visual for each song</strong>: set it in each marker's <strong>Visual</strong> box.
+   - <strong>One visual for the whole video</strong>.</li>
+<li><strong>Preview</strong>: press Play. The video preview follows the music live.</li>
+<li><strong>Export video</strong> (Ctrl+E): saves an MP4 with your original audio as the soundtrack.</li>
+</ol>
+<h3 id="the-timeline_1">The timeline</h3>
+<p>Click to move the playhead. The red line is the playhead; coloured flags are the song markers. Zoom with <strong>−</strong>, <strong>+</strong>, <strong>Fit</strong>.</p>
+<h3 id="putting-a-video-on-the-timeline">Putting a video on the timeline</h3>
+<p>Instead of a visual, a song's section can show a video of your own. Select a marker, then under <strong>Video on this song</strong> click <strong>Import video…</strong>.
+- <strong>Line up by sound</strong>: the app compares the video's sound with the music of that section and moves the video to its best-guess position. It works best when the clip was cut from the same music at normal speed. If the match is weak it says so; if the video has no sound it can't try. Click the button again any time.
+- <strong>Adjust by hand</strong>: drag the video's bar in the <strong>video lane</strong> under the waveform, or type its start time. The <strong>−1 s / −100 ms / −10 ms / −1 ms</strong> and <strong>+</strong> buttons nudge it in milliseconds. Play to check it against the music.
+- <strong>Speed</strong>: change the playback speed (0.25x to 4x, with nudge buttons and a reset to 1x). <strong>Loop</strong> repeats a short video.
+- The video's own sound is <strong>never</strong> used: it is muted, and the exported soundtrack is only your audio.
+- <strong>Visual or video:</strong> the song's <strong>Visual</strong> list starts with <strong>▶ Video: name</strong> (and <strong>▶ The file's own video</strong> when you opened a video file). Pick any visual to show that instead; the video stays on the song (it isn't drawn on the video lane while a visual is chosen) and <strong>▶ Video</strong> switches back to it. <strong>Remove</strong> (under “Video on this song”) deletes it. Everything else (transitions, cards, undo/redo, saving in the <code>.lmv</code>) works as before.</p>
+<h3 id="video-settings">Video settings</h3>
+<p><strong>Project settings…</strong> (Edit menu, toolbar, Ctrl+Shift+G) gathers them in one window: how the visuals are chosen, size, frame rate, quality, blend, the cover card, using the file's own video, and the default transition. They are also in the side panel.</p>
+<ul>
+<li><strong>Visual blend</strong>: how many seconds the visuals take to blend at each song change (the <em>Length</em> of a transition set to Automatic).</li>
+<li><strong>Default transition between songs</strong>: one of the 20 transitions with all its controls (see <a href="#video-transitions">Video transitions</a>). Select a song to give <em>its</em> transition different settings under <strong>Transition into this song</strong>.</li>
+<li><strong>Video files</strong>: if the file you opened is a video, its own picture is shown, in sync with its sound (<strong>Use the file's own video as the picture</strong> turns it off). Pick a visual for a song to replace it, or <strong>Video clip…</strong> to show another video file (looped) for that song.</li>
+<li><strong>Size</strong>, <strong>Frame rate</strong>, <strong>Pick different random visuals</strong>.</li>
+<li><strong>Show cover art, artist and title</strong> (lower left) can be turned off for this project. Each marker can have its own cover image; markers without one get a plain coloured tile with the song's initial.</li>
+<li>Before the first marker, the video shows the audio file's own title.</li>
+</ul>
+<h3 id="projects">Projects</h3>
+<p><strong>Save project</strong> (Ctrl+S) writes a <code>.lmv</code> file that keeps your markers, visuals and settings (imported visuals travel inside). <strong>Open project</strong> (Ctrl+Shift+O) brings it back; if the audio moved, point the app at its folder. <strong>Save cue sheet…</strong> exports your markers as a <code>.cue</code> file. Undo/redo work for all edits.</p>
+<p>Very long files (over about 40 minutes) work too; the music-reactive part of the visuals uses a lower-detail view of the audio to save memory.</p>
+<hr />
+<h2 id="13-settings">13. Settings</h2>
+<p><strong>Settings → Show cover art, artist and title on videos</strong> is the master switch for the lower-left card.</p>
+<ul>
+<li>It is <strong>on by default</strong>.</li>
+<li>Turn it <strong>off</strong> and no video shows the card: not mix videos, not the studio, not the command line. Each video also has its own checkbox, which only matters while the master switch is on.</li>
+</ul>
+<hr />
+<h2 id="14-keyboard-shortcuts">14. Keyboard shortcuts</h2>
+<p><strong>Main window</strong></p>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S</td>
+<td>New / Open / Save / Save as</td>
+</tr>
+<tr>
+<td>Ctrl+I / Ctrl+Shift+I</td>
+<td>Add songs / Add folder</td>
+</tr>
+<tr>
+<td>Ctrl+Shift+E</td>
+<td>Edit song info (cover, artist, title)</td>
+</tr>
+<tr>
+<td>Ctrl+G</td>
+<td>Generate mix</td>
+</tr>
+<tr>
+<td>Ctrl+Shift+G</td>
+<td>Project settings (mix window and Visualization Studio)</td>
+</tr>
+<tr>
+<td>Space</td>
+<td>Play / pause</td>
+</tr>
+<tr>
+<td>Ctrl+E / Ctrl+Shift+E / Ctrl+Alt+E</td>
+<td>Export audio / Export video / Export both</td>
+</tr>
+<tr>
+<td>Ctrl+Z / Ctrl+Shift+Z</td>
+<td>Undo / Redo</td>
+</tr>
+<tr>
+<td>Delete</td>
+<td>Remove the selected song</td>
+</tr>
+<tr>
+<td>Ctrl+Shift+V</td>
+<td>Visualization Studio</td>
+</tr>
+<tr>
+<td>Ctrl+Q</td>
+<td>Quit</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Visualization Studio</strong></p>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ctrl+O / Ctrl+Shift+O</td>
+<td>Open audio / Open project</td>
+</tr>
+<tr>
+<td>Ctrl+S / Ctrl+Shift+S</td>
+<td>Save project / Save as</td>
+</tr>
+<tr>
+<td>Ctrl+I</td>
+<td>Import cue sheet</td>
+</tr>
+<tr>
+<td>Ctrl+E</td>
+<td>Export video</td>
+</tr>
+<tr>
+<td>Space</td>
+<td>Play / pause</td>
+</tr>
+<tr>
+<td>M</td>
+<td>Add a marker at the playhead</td>
+</tr>
+<tr>
+<td>Delete</td>
+<td>Remove the selected marker</td>
+</tr>
+<tr>
+<td>Ctrl+Z / Ctrl+Shift+Z</td>
+<td>Undo / Redo</td>
+</tr>
+<tr>
+<td>Ctrl+W</td>
+<td>Close the studio</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="15-command-line">15. Command line</h2>
+<p>The same program works from a terminal (<code>lmm</code> below stands for the app's program name):</p>
+<pre><code>lmm mix songs/ -o mix.flac --session mix.lmm       analyse, mix and write a cue sheet
+lmm mix songs/ -o clips.mp3 --mode clips            short highlight clips
+lmm show mix.lmm                                    print tracklist, transitions, effects
+lmm render mix.lmm -o again.wav --library &quot;D:/Music&quot;
+lmm video mix.lmm -o mix.mp4 --mode random          add --no-overlay to hide the card
+lmm studio mixtape.mp3 --cue mix.cue -o mix.mp4 --mode random
+lmm config --overlay off                            turn the lower-left card off everywhere
+</code></pre>
+<p>Useful options: <code>--overlap-bars</code> (longest blend), <code>--tempo-mode</code>, <code>--no-effects</code>, <code>--keep-order</code>, <code>--visual NAME</code>, <code>--blend SECONDS</code>, <code>--save-project x.lmv</code>. Run any command with <code>--help</code> for the full list.</p>
+<hr />
+<h2 id="16-tips-and-troubleshooting">16. Tips and troubleshooting</h2>
+<p><strong>How good is the analysis?</strong> It uses signal processing, not a neural network, so it works fully offline. It does best on beat-driven music with a steady tempo. Key detection on dense or atonal music, and the part labels, are best-effort guesses; you can always fix the result by hand.</p>
+<p><strong>Two songs didn't blend smoothly.</strong> Songs more than about 25% apart in tempo (after trying half and double time) can't be beat-matched, so the app uses a cut with an effect. You can raise <strong>Biggest tempo change</strong> in Generate mix, or choose a different order.</p>
+<p><strong>A blend is too long or short.</strong> Change <strong>Blend length</strong> in the Transition tab, drag the song, or lower <strong>Longest blend</strong> in Generate mix.</p>
+<p><strong>I want fewer effects.</strong> Untick <strong>Let the AI add effects</strong> in Generate mix, or untick <strong>Effects at this transition</strong> on one blend.</p>
+<p><strong>"File not found" on a song.</strong> Use <strong>File → Find missing songs…</strong> and choose the folder that has your copy.</p>
+<p><strong>Video export says OpenGL isn't available.</strong> Video needs OpenGL 3.3. Update your graphics drivers (on a virtual machine or remote desktop, it may not be available). Audio features work without it.</p>
+<p><strong>A visual looks different from Shadertoy.</strong> Some shaders use inputs that can't work offline (webcam, cube maps, 3D textures). They are replaced with noise, and the app shows a warning on that visual. Shaders that use a texture or video need that file: open <strong>View/Edit Code</strong> and pick it.</p>
+<p><strong>A video doesn't react to the music.</strong> Open the shader in <strong>View/Edit Code</strong> and check that one iChannel is set to <strong>Music (audio)</strong>; shaders pasted as plain code use the music on iChannel0.</p>
+<p><strong>No sound from Play.</strong> The preview needs an audio output device. Exporting still works without one.</p>
+<p><strong>Where is my data kept?</strong> Imported visuals are saved in a folder called <code>shaders</code> inside the app's data folder (a shader that needs textures or clips gets its own sub-folder there, with its files) (an older <code>visuals</code> folder is renamed automatically). Preferences are stored in the app's data folder for your account on your computer. Sessions (<code>.lmm</code>) and projects (<code>.lmv</code>) are saved wherever you choose.</p>

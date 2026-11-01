@@ -17,5 +17,6 @@
 
 ### Fixes
 - Windows and macOS builds: tests that don't need OpenGL no longer try to use it, and the live preview test is more patient on machines without a GPU.
+- The **Size** box in the Visuals tab and in the Visualization Studio now stays on the size you pick (it was snapping back to 1280 × 720).
 
 Everything still runs offline. Windows (.zip), macOS (.zip) and Linux (.tar.gz) builds are attached.

@@ -228,3 +228,20 @@ def test_studio_project_settings(app, tmp_path):
     assert win.project.video.width == 1280 and win.project.video.mode != "per_song"
     win.dirty = False
     win.close()
+
+
+def test_video_size_can_be_changed_in_the_mix_window(app, tmp_path):
+    w, _ = _mix_window(tmp_path)
+    s = w.state
+    panel = w.visuals
+    labels = [panel.res.itemText(i) for i in range(panel.res.count())]
+    assert panel.res.currentText().startswith("1280")
+    panel.res.setCurrentIndex(labels.index("1920 × 1080 (Full HD)"))      # a pick sticks
+    assert (s.video.width, s.video.height) == (1920, 1080)
+    assert panel.res.currentText().startswith("1920")
+    panel.res.setCurrentIndex(labels.index("1080 × 1080 (square)"))
+    assert (s.video.width, s.video.height) == (1080, 1080) and panel.res.currentText().startswith("1080")
+    s.undo()
+    assert panel.res.currentText().startswith("1920")
+    s.dirty = False
+    w.close()

@@ -427,7 +427,7 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.res = QComboBox()
         for label, wh in (("1280 × 720 (HD)", (1280, 720)), ("1920 × 1080 (Full HD)", (1920, 1080)),
                           ("854 × 480", (854, 480)), ("1080 × 1080 (square)", (1080, 1080))):
-            self.res.addItem(label, wh)
+            self.res.addItem(label, f"{wh[0]}x{wh[1]}")
         self.fps = QComboBox()
         for v in (24, 30, 60):
             self.fps.addItem(f"{v} fps", v)
@@ -530,7 +530,7 @@ class StudioWindow(TaskMixin, QMainWindow):
         self.single.activated.connect(lambda _: self._video(single_shader=self.single.currentData()))
         self.reroll.clicked.connect(lambda: self._video(seed=self.project.video.seed + 1))
         self.blend.editingFinished.connect(lambda: self._video(blend=self.blend.value()))
-        self.res.activated.connect(lambda _: self._video(width=self.res.currentData()[0], height=self.res.currentData()[1]))
+        self.res.activated.connect(lambda _: self._video(width=int(self.res.currentData().split("x")[0]), height=int(self.res.currentData().split("x")[1])))
         self.fps.activated.connect(lambda _: self._video(fps=self.fps.currentData()))
         self.overlay.toggled.connect(lambda c: None if self._busy else self._video(show_overlay=c))
         self.library.changed.connect(self._library_changed)
@@ -1055,7 +1055,7 @@ class StudioWindow(TaskMixin, QMainWindow):
             self.t_default.set_value(v.transition)
             self.use_video.setVisible(st.has_source_video(p))
             self.use_video.setChecked(v.use_video)
-            self.res.setCurrentIndex(max(0, self.res.findData((v.width, v.height))))
+            self.res.setCurrentIndex(max(0, self.res.findData(f"{v.width}x{v.height}")))
             self.fps.setCurrentIndex(max(0, self.fps.findData(v.fps)))
             self.overlay.setChecked(v.show_overlay)
             self.overlay_note.setText("" if prefs.overlay_enabled() else

@@ -691,7 +691,7 @@ class VisualsPanel(QWidget):
         self.res = QComboBox()
         for label, wh in (("1280 × 720 (HD)", (1280, 720)), ("1920 × 1080 (Full HD)", (1920, 1080)),
                           ("854 × 480", (854, 480)), ("1080 × 1080 (square)", (1080, 1080))):
-            self.res.addItem(label, wh)
+            self.res.addItem(label, f"{wh[0]}x{wh[1]}")
         self.fps = QComboBox()
         for v in (24, 30, 60):
             self.fps.addItem(f"{v} fps", v)
@@ -750,7 +750,7 @@ class VisualsPanel(QWidget):
         self.single.setCurrentIndex(max(0, self.single.findData(v.single_shader)))
         self.single.setEnabled(v.mode == "single")
         self.reroll.setEnabled(v.mode == "random")
-        self.res.setCurrentIndex(max(0, self.res.findData((v.width, v.height))))
+        self.res.setCurrentIndex(max(0, self.res.findData(f"{v.width}x{v.height}")))
         self.fps.setCurrentIndex(max(0, self.fps.findData(v.fps)))
         self.overlay.setChecked(v.show_overlay)
         self._busy = False
@@ -771,7 +771,7 @@ class VisualsPanel(QWidget):
     def _size(self, _):
         if self._busy:
             return
-        w, h = self.res.currentData()
+        w, h = (int(n) for n in self.res.currentData().split("x"))
         self.state.edit_video(lambda v: (setattr(v, "width", w), setattr(v, "height", h)))
 
     def _fps(self, _):
