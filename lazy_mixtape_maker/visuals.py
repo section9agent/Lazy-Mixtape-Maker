@@ -200,16 +200,54 @@ class ShaderError(RuntimeError):
     pass
 
 
+def _qt_context():
+    """Last resort on Linux: ask Qt for an OpenGL context (it already knows how to reach the driver on
+    this desktop, even when the plain headless routes can't) and let moderngl use it."""
+    import moderngl
+    from PySide6.QtGui import QOffscreenSurface, QOpenGLContext, QSurfaceFormat
+    from PySide6.QtWidgets import QApplication
+
+    if QApplication.instance() is None:
+        raise RuntimeError("no Qt application")
+    fmt = QSurfaceFormat()
+    fmt.setVersion(3, 3)
+    fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
+    qctx = QOpenGLContext()
+    qctx.setFormat(fmt)
+    if not qctx.create():
+        raise RuntimeError("Qt could not create an OpenGL 3.3 context")
+    surf = QOffscreenSurface()
+    surf.setFormat(qctx.format())
+    surf.create()
+    if not qctx.makeCurrent(surf):
+        raise RuntimeError("Qt could not make its OpenGL context current")
+    ctx = moderngl.create_context(require=330)
+    ctx.extra = {"qt": (qctx, surf)}                       # keep them alive as long as the context lives
+    return ctx
+
+
 def make_context():
-    """A headless OpenGL context (works without a window; EGL fallback on Linux)."""
+    """A headless OpenGL context (works without a window; EGL / Qt fallbacks on Linux).
+    Set LMM_GL_BACKEND to egl, x11 or qt to try one particular route first."""
+    import os
+    import sys
+
     import moderngl
 
+    routes = [None, "egl"]
+    if sys.platform.startswith("linux"):
+        routes += ["x11", "qt"]
+    forced = os.environ.get("LMM_GL_BACKEND", "").strip().lower()
+    if forced:
+        routes = [None if forced in ("auto", "default") else forced] + [r for r in routes if r != forced]
     errors = []
-    for backend in (None, "egl"):
+    for backend in routes:
         try:
+            if backend == "qt":
+                return _qt_context()
             return moderngl.create_standalone_context(require=330, **({"backend": backend} if backend else {}))
         except Exception as e:  # noqa: BLE001
-            errors.append(str(e))
+            errors.append(f"{backend or 'default'}: {str(e).strip()[:200]}")
     raise ShaderError("Could not create an OpenGL 3.3 context for rendering visuals: " + "; ".join(errors))
 
 

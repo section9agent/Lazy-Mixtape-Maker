@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 import soundfile as sf
-from PySide6.QtCore import QSettings, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QEvent, QSettings, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPixmap
 from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
                                QMainWindow, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSplitter,
@@ -758,6 +758,36 @@ class MainWindow(TaskMixin, QMainWindow):
             self.load_session(sess[0])
         elif paths:
             self.add_files(paths, ask_options=any(Path(p).is_dir() for p in paths))
+
+    # Some Linux desktops (SteamOS / KDE) leave widgets half-drawn or piled up after a maximize or full-screen
+    # change. Laying everything out again once the window has settled puts them back where they belong.
+    def _relayout(self):
+        c = self.centralWidget()
+        if c is not None and c.layout() is not None:
+            c.layout().invalidate()
+            c.layout().activate()
+        for sp in self.findChildren(QSplitter):
+            sp.refresh()
+        self.updateGeometry()
+        self.update()
+        self.repaint()
+
+    def _schedule_relayout(self):
+        t = getattr(self, "_relayout_timer", None)
+        if t is None:
+            t = self._relayout_timer = QTimer(self)
+            t.setSingleShot(True)
+            t.timeout.connect(self._relayout)
+        t.start(150)
+
+    def changeEvent(self, ev):
+        super().changeEvent(ev)
+        if ev.type() == QEvent.Type.WindowStateChange:
+            self._schedule_relayout()
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._schedule_relayout()
 
     def closeEvent(self, ev):
         if self.task is not None:

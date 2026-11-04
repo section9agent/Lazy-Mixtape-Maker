@@ -1,4 +1,5 @@
 # PyInstaller spec - run from the project root:  pyinstaller packaging/lmm.spec --noconfirm
+import os
 import sys
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_data_files
@@ -19,6 +20,12 @@ excludes = ["tkinter", "matplotlib", "PySide6.QtWebEngineCore", "PySide6.QtWebEn
 
 a = Analysis([str(ROOT / "packaging" / "entry.py")], pathex=[str(ROOT)], binaries=binaries, datas=datas,
              hiddenimports=hidden + ["scipy.special._cdflib", "lazy_mixtape_maker.gui.studio_window", "lazy_mixtape_maker.studio"], excludes=excludes)
+if sys.platform.startswith("linux"):
+    # Use the computer's own graphics drivers and C++ runtime. Bundled (older) copies of these clash with the
+    # newer Mesa on rolling distributions such as Arch / SteamOS, and then OpenGL is "not available".
+    _SYSTEM = ("libstdc++.so", "libgcc_s.so", "libGL.so", "libGLX", "libEGL", "libGLdispatch", "libOpenGL.so",
+               "libgbm.so", "libdrm", "libwayland-")
+    a.binaries = [b for b in a.binaries if not os.path.basename(b[0]).startswith(_SYSTEM)]
 pyz = PYZ(a.pure)
 icon = str(ROOT / "packaging" / ("icon.ico" if sys.platform == "win32" else "icon.icns"))
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="LazyMixtapeMaker", console=False,

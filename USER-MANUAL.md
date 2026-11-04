@@ -411,3 +411,8 @@ Useful options: `--overlap-bars` (longest blend), `--tempo-mode`, `--no-effects`
 **No sound from Play.** The preview needs an audio output device. Exporting still works without one.
 
 **Where is my data kept?** Imported visuals are saved in a folder called `shaders` inside the app's data folder (a shader that needs textures or clips gets its own sub-folder there, with its files) (an older `visuals` folder is renamed automatically). Preferences are stored in the app's data folder for your account on your computer. Sessions (`.lmm`) and projects (`.lmv`) are saved wherever you choose.
+
+
+## Troubleshooting: "OpenGL not available" (Linux and Steam Deck)
+
+The visuals need OpenGL 3.3. The app tries the normal route, then EGL, X11 and finally Qt's own, and the message lists what each said. To try one route first, start the app from a terminal with `LMM_GL_BACKEND=egl ./LazyMixtapeMaker` (or `x11`, or `qt`). On SteamOS use Desktop Mode. If it still fails, send the message shown so the right route can be added.

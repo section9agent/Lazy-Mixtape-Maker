@@ -245,3 +245,29 @@ def test_video_size_can_be_changed_in_the_mix_window(app, tmp_path):
     assert panel.res.currentText().startswith("1920")
     s.dirty = False
     w.close()
+
+
+def test_window_relayouts_after_maximize_and_gl_routes_are_listed(app, tmp_path, monkeypatch):
+    from PySide6.QtCore import Qt, QTimer
+    from PySide6.QtWidgets import QApplication
+    w, _ = _mix_window(tmp_path)
+    w.setWindowState(Qt.WindowState.WindowMaximized)
+    w.resize(900, 700)
+    loop = []
+    QTimer.singleShot(400, lambda: loop.append(1))
+    while not loop:
+        QApplication.processEvents()
+    assert w._relayout_timer is not None and not w._relayout_timer.isActive()
+    w.s = None
+    w.state.dirty = False
+    w.close()
+    # every route is tried and reported when none works
+    from lazy_mixtape_maker import visuals
+    import moderngl
+    monkeypatch.setattr(moderngl, "create_standalone_context", lambda **k: (_ for _ in ()).throw(RuntimeError("nope " + str(k.get("backend")))))
+    monkeypatch.setattr(visuals, "_qt_context", lambda: (_ for _ in ()).throw(RuntimeError("no qt")))
+    monkeypatch.setenv("LMM_GL_BACKEND", "egl")
+    with pytest.raises(visuals.ShaderError) as e:
+        visuals.make_context()
+    msg = str(e.value)
+    assert "egl: nope egl" in msg and "default: nope None" in msg
