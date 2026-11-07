@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel, Q
                                QMainWindow, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSplitter,
                                QTabWidget, QToolBar, QToolButton, QVBoxLayout, QWidget)
 
-from .. import __version__, audio_io, cue as cuemod, plan as planmod, prefs
+from .. import __version__, audio_io, cue as cuemod, plan as planmod, prefs, updater
 from ..audio_io import SR
 from .. import songinfo
 from ..playlist import expand_inputs
@@ -31,6 +31,8 @@ from .panels import CuePanel, Inspector, ThumbCache, VisualsPanel, fmt_hms, fmt_
 from .state import AppState
 from .timeline import TimelineWidget, track_color
 from .tasks import TaskMixin
+from .about import AboutDialog
+from .update_ui import UpdateMixin
 from .workers import Worker
 
 ORG, APP = "LazyMixtapeMaker", "Lazy Mixtape Maker"
@@ -74,7 +76,7 @@ class TrackList(QListWidget):
             QTimer.singleShot(0, lambda: self.moved.emit(src, dst))
 
 
-class MainWindow(TaskMixin, QMainWindow):
+class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
     def __init__(self, shaders: ShaderLibrary | None = None):
         super().__init__()
         self.settings = QSettings(ORG, APP)
@@ -91,6 +93,7 @@ class MainWindow(TaskMixin, QMainWindow):
         self._build_ui()
         self._build_actions()
         self._init_player()
+        self.init_updates()
         s = self.state
         s.changed.connect(self._on_changed)
         s.selection.connect(self._on_selection)
@@ -223,7 +226,11 @@ class MainWindow(TaskMixin, QMainWindow):
         self.a_overlay.setToolTip("On by default. Turn off to leave the card out of every video (mix videos and the studio).")
         self.a_info = act("Edit song info…", self.edit_song_info, "Ctrl+Shift+E", "Change the selected song's cover art, artist and title")
         self.a_quit = act("Quit", self.close, "Ctrl+Q")
-        self.a_about = act("About", self.about)
+        self.a_about = act("About Lazy Mixtape Maker…", self.about)
+        self.a_update = act("Check for updates…", lambda: self.check_updates(True))
+        self.a_auto_update = act("Check for updates automatically", lambda on: updater.set_enabled(bool(on)))
+        self.a_auto_update.setCheckable(True)
+        self.a_auto_update.setChecked(updater.enabled())
         m = self.menuBar()
         f = m.addMenu("&File")
         for a in (self.a_new, self.a_open, self.a_save, self.a_save_as, None, self.a_add, self.a_add_folder, self.a_add_playlist, self.a_locate,
@@ -240,7 +247,9 @@ class MainWindow(TaskMixin, QMainWindow):
         tm.addAction(self.a_studio)
         sm = m.addMenu("&Settings")
         sm.addAction(self.a_overlay)
-        m.addMenu("&Help").addAction(self.a_about)
+        hm = m.addMenu("&Help")
+        for a in (self.a_update, self.a_auto_update, None, self.a_about):
+            hm.addAction(a) if a else hm.addSeparator()
         tb = QToolBar("Main")
         tb.setMovable(False)
         tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
@@ -737,10 +746,12 @@ class MainWindow(TaskMixin, QMainWindow):
         self.setWindowTitle(f"{self.state.title()} — {APP}")
 
     def about(self):
-        QMessageBox.about(self, APP, f"<b>{APP}</b> {__version__}<br>An offline auto-DJ: analyses your own music "
-                                     "(tempo, key, song parts), beat-matches and blends it into one mixtape, and can "
-                                     "make a video with Shadertoy visuals.<br><br>Everything runs on this computer; "
-                                     "nothing is uploaded.")
+        icon = Path(__file__).resolve().parent.parent / "assets" / "icon_256.png"
+        if getattr(sys, "_MEIPASS", None):
+            icon = Path(sys._MEIPASS) / "assets" / "icon_256.png"
+        dlg = AboutDialog(self, icon, lambda: self.check_updates(True))
+        dlg.exec()
+        self.a_auto_update.setChecked(updater.enabled())
 
     # ------------------------------------------------------------------ events
     def dragEnterEvent(self, e):

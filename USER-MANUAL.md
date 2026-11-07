@@ -416,3 +416,16 @@ Useful options: `--overlap-bars` (longest blend), `--tempo-mode`, `--no-effects`
 ## Troubleshooting: "OpenGL not available" (Linux and Steam Deck)
 
 The visuals need OpenGL 3.3. The app tries the normal route, then EGL, X11 and finally Qt's own, and the message lists what each said. To try one route first, start the app from a terminal with `LMM_GL_BACKEND=egl ./LazyMixtapeMaker` (or `x11`, or `qt`). On SteamOS use Desktop Mode. If it still fails, send the message shown so the right route can be added.
+
+
+## About, donations and updates
+
+**Help > About Lazy Mixtape Maker…** shows who made the program (*Coded by Claude & Emmanuel Hoachlander*), the open-source software it is built on with each one's licence, and a **Donate with PayPal** button. If you enjoy the program, please consider a donation; it goes to section9agent@hotmail.com. Lazy Mixtape Maker itself is free software under the GNU GPL v3.
+
+**Updates.** The app can look at the project's GitHub releases and install the newest version for you:
+
+- **Help > Check for updates…** checks right now.
+- **Help > Check for updates automatically** (also a checkbox in the About window) is on by default. It looks a few seconds after the app starts, at most every six hours. **Untick it to turn updating off completely**: the app then never contacts GitHub on its own.
+- When a newer version exists you are asked: **Install and restart** (downloads the build for your system, closes the app, swaps the files and starts the new version), **Later**, or **Skip this version**. You are asked to save first if you have unsaved changes. Your settings, saved visuals and sessions are not touched.
+- Only releases that have been *published* count (drafts are invisible). Everything goes over HTTPS to github.com only.
+- A copy run from source (`python -m lazy_mixtape_maker`) never checks on its own, and where the app folder isn't writable the button opens the download page instead.

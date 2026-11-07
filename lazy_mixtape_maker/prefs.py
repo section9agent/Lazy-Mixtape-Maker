@@ -5,7 +5,7 @@ import json
 
 from .visuals import data_dir
 
-_DEFAULTS = {"show_overlay": True}     # cover art + artist + title on every video, until switched off
+_DEFAULTS = {"show_overlay": True, "auto_update": True}     # cover art + artist + title on every video, until switched off
 
 
 def _file():

@@ -15,6 +15,10 @@
 - **Mix window:** *Mix → Project settings…* (Ctrl+Shift+G) opens the same options as when you drop a folder, any time. By default it **keeps your song order and hand edits** and only refreshes tempos, blends, key matching and AI effects. Tick *Rebuild the whole mix* to start over. Undoable.
 - **Visualization Studio:** a **Project settings…** window (Ctrl+Shift+G) with visual mode, size, frame rate, quality, blend, cover card, source video and the default transition.
 
+### Also new
+- **Help > About:** credits for the open-source software used (with licences), "Coded by Claude & Emmanuel Hoachlander", and a **Donate with PayPal** button.
+- **Automatic updates:** the app can check GitHub releases and download and install the newest version for you (Install and restart / Later / Skip this version). Turn it off any time under **Help > Check for updates automatically**.
+
 ### Fixes
 - **Linux / Steam Deck (SteamOS):** the Linux build no longer bundles its own graphics and C++ libraries, so it uses the computer's own (newer) graphics drivers; the app also tries more ways of getting OpenGL (EGL, X11 and Qt) and lists what each one said if none works. If needed, start it with `LMM_GL_BACKEND=egl` (or `x11`, `qt`) to try one route first.
 - Linux: the window lays itself out again after it is maximized, made full screen or resized, which cures widgets piling up on the right and bottom.

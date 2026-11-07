@@ -19,6 +19,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp the build with its release tag (the app's update check compares against it)
+        shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then TAG="${GITHUB_REF_NAME}";
+          elif [ -n "$INPUT_TAG" ]; then TAG="$INPUT_TAG";
+          else TAG="build-${GITHUB_RUN_NUMBER}"; fi
+          printf 'TAG = "%s"\nBUILT = "%s"\n' "$TAG" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > lazy_mixtape_maker/_buildinfo.py
+          cat lazy_mixtape_maker/_buildinfo.py
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       # ffmpeg is bundled by the imageio-ffmpeg package, so no separate install is needed on any OS.
