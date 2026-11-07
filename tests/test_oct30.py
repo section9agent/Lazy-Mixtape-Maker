@@ -253,10 +253,12 @@ def test_window_relayouts_after_maximize_and_gl_routes_are_listed(app, tmp_path,
     w, _ = _mix_window(tmp_path)
     w.setWindowState(Qt.WindowState.WindowMaximized)
     w.resize(900, 700)
-    loop = []
-    QTimer.singleShot(400, lambda: loop.append(1))
-    while not loop:
+    import time
+    end = time.time() + 8                              # a desktop may keep animating the maximize for a while
+    while time.time() < end and (getattr(w, "_relayout_timer", None) is None or w._relayout_timer.isActive()
+                                 or time.time() < end - 7.5):
         QApplication.processEvents()
+        time.sleep(0.02)
     assert w._relayout_timer is not None and not w._relayout_timer.isActive()
     w.s = None
     w.state.dirty = False
