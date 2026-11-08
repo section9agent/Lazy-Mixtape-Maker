@@ -24,8 +24,8 @@ from urllib.parse import urlparse
 from . import __version__, _buildinfo
 
 REPO = "section9agent/Lazy-Mixtape-Maker"
-API_LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
-RELEASES_PAGE = f"https://github.com/{REPO}/releases"
+API_LATEST = f"https://api.github.com/repos/section9agent/Lazy-Mixtape-Maker/releases/latest"
+RELEASES_PAGE = f"https://github.com/section9agent/Lazy-Mixtape-Maker/releases"
 USER_AGENT = "LazyMixtapeMaker-updater"
 ALLOWED_HOSTS = ("github.com", "api.github.com", "objects.githubusercontent.com", "githubusercontent.com")
 CHECK_EVERY = 6 * 3600          # a start-up check is skipped when one was made less than this long ago
