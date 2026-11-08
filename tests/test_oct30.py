@@ -267,9 +267,31 @@ def test_window_relayouts_after_maximize_and_gl_routes_are_listed(app, tmp_path,
     from lazy_mixtape_maker import visuals
     import moderngl
     monkeypatch.setattr(moderngl, "create_standalone_context", lambda **k: (_ for _ in ()).throw(RuntimeError("nope " + str(k.get("backend")))))
-    monkeypatch.setattr(visuals, "_qt_context", lambda: (_ for _ in ()).throw(RuntimeError("no qt")))
     monkeypatch.setenv("LMM_GL_BACKEND", "egl")
     with pytest.raises(visuals.ShaderError) as e:
         visuals.make_context()
     msg = str(e.value)
     assert "egl: nope egl" in msg and "default: nope None" in msg
+    assert msg.index("egl: nope") < msg.index("default: nope")             # the forced route goes first
+    import sys
+    if sys.platform.startswith("linux"):
+        assert "egl-surfaceless" in msg and "software" in msg
+
+
+def test_shader_name_can_be_edited_with_its_code(app, tmp_path):
+    from lazy_mixtape_maker.gui.dialogs import EditShaderDialog
+    from lazy_mixtape_maker.visuals import ShaderLibrary
+    lib = ShaderLibrary()
+    code = "void mainImage(out vec4 c,in vec2 p){ c = vec4(0.2); }"
+    sh = lib.add("Old name", code, check=False)         # no OpenGL needed on the test machine
+    dlg = EditShaderDialog(lib, sh)
+    assert dlg.name.text() == "Old name" and not dlg.name.isReadOnly()
+    dlg.name.setText("  Better name ")
+    dlg._save()                                                    # only the name changed: no OpenGL needed
+    assert dlg.saved and lib.get(sh.id).name == "Better name"
+    blank = EditShaderDialog(lib, lib.get(sh.id))
+    blank.name.setText("   ")
+    blank._save()
+    assert lib.get(sh.id).name == "Better name"                    # an empty name is ignored
+    built_in = EditShaderDialog(lib, lib.all()[0])
+    assert built_in.name.isReadOnly()

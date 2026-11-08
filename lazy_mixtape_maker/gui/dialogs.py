@@ -319,6 +319,13 @@ class EditShaderDialog(QDialog):
         self.setWindowTitle(f"{'View' if sh.builtin else 'View / Edit'} code — {sh.name}")
         self.resize(780, 640)
         lay = QVBoxLayout(self)
+        nrow = QHBoxLayout()
+        nrow.addWidget(QLabel("Name"))
+        self.name = QLineEdit(sh.name)
+        self.name.setReadOnly(sh.builtin)
+        self.name.setToolTip("Built-in visuals keep their name." if sh.builtin else "The name shown in the library and visual lists.")
+        nrow.addWidget(self.name, 1)
+        lay.addLayout(nrow)
         self.common = _PassEditor("Common", False)
         self.buf = {L: _PassEditor(f"Buffer {L}", True) for L in "ABCD"}
         self.image = _PassEditor("Image", True)
@@ -348,6 +355,7 @@ class EditShaderDialog(QDialog):
             e.code.setReadOnly(sh.builtin)
             for c in e.combos:
                 c.setEnabled(not sh.builtin)
+        self._start = self._snapshot()
         miss = sh.missing_media()
         self.note = QLabel()
         self.note.setWordWrap(True)
@@ -366,10 +374,24 @@ class EditShaderDialog(QDialog):
         bb.button(QDialogButtonBox.StandardButton.Close).clicked.connect(self.reject)
         lay.addWidget(bb)
 
+    def _rename(self):
+        new = self.name.text().strip()
+        if new and new != self.sh.name and not self.sh.builtin:
+            self.shaders.rename(self.sh.id, new)
+
+    def _snapshot(self):
+        eds = (self.common, *self.buf.values(), self.image)
+        return tuple((e.text(), tuple(sorted((str(k), str(v)) for k, v in (e.inputs() or {}).items()))) for e in eds)
+
     def _save(self):
         self.msg.setText("")
         self.setCursor(Qt.CursorShape.WaitCursor)
         try:
+            if self._snapshot() == self._start:         # only the name (or nothing) changed: no need to recompile
+                self._rename()
+                self.saved = True
+                self.accept()
+                return
             multi = bool(self.sh.passes) or any(e.text().strip() for e in (self.common, *self.buf.values()))
             img_in = self.image.inputs()
             if not multi and img_in == {0: "audio"}:
@@ -381,6 +403,7 @@ class EditShaderDialog(QDialog):
                 if not passes:       # a bare image pass with no inputs
                     passes = [{"name": "Image", "type": "image", "code": source, "inputs": {}}]
                 self.shaders.update_code(self.sh.id, source, passes)
+            self._rename()
             self.saved = True
             self.accept()
         except (ShaderError, ValueError, OSError) as e:

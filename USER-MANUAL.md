@@ -415,8 +415,7 @@ Useful options: `--overlap-bars` (longest blend), `--tempo-mode`, `--no-effects`
 
 ## Troubleshooting: "OpenGL not available" (Linux and Steam Deck)
 
-The visuals need OpenGL 3.3. The app tries the normal route, then EGL, X11 and finally Qt's own, and the message lists what each said. To try one route first, start the app from a terminal with `LMM_GL_BACKEND=egl ./LazyMixtapeMaker` (or `x11`, or `qt`). On SteamOS use Desktop Mode. If it still fails, send the message shown so the right route can be added.
-
+The visuals need OpenGL 3.3. The app tries the normal route, then EGL (also with the "surfaceless" and "gbm" platforms), X11, and finally Mesa's software renderer, which works almost anywhere but is slow. If none works, the message lists what each route said. To try one route first, start the app from a terminal with, for example, `LMM_GL_BACKEND=egl-surfaceless ./LazyMixtapeMaker` (other names: `egl`, `egl-gbm`, `x11`, `software`). On SteamOS use Desktop Mode. If it still fails, send the message shown so the right route can be added.
 
 ## About, donations and updates
 
@@ -429,3 +428,5 @@ The visuals need OpenGL 3.3. The app tries the normal route, then EGL, X11 and f
 - When a newer version exists you are asked: **Install and restart** (downloads the build for your system, closes the app, swaps the files and starts the new version), **Later**, or **Skip this version**. You are asked to save first if you have unsaved changes. Your settings, saved visuals and sessions are not touched.
 - Only releases that have been *published* count (drafts are invisible). Everything goes over HTTPS to github.com only.
 - A copy run from source (`python -m lazy_mixtape_maker`) never checks on its own, and where the app folder isn't writable the button opens the download page instead.
+
+In **Edit code** (Visuals tab or Shader Manager) the **Name** box at the top lets you rename a visual you added at the same time as you change its code; renaming alone saves instantly.

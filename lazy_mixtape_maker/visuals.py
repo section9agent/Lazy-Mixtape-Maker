@@ -200,54 +200,44 @@ class ShaderError(RuntimeError):
     pass
 
 
-def _qt_context():
-    """Last resort on Linux: ask Qt for an OpenGL context (it already knows how to reach the driver on
-    this desktop, even when the plain headless routes can't) and let moderngl use it."""
-    import moderngl
-    from PySide6.QtGui import QOffscreenSurface, QOpenGLContext, QSurfaceFormat
-    from PySide6.QtWidgets import QApplication
-
-    if QApplication.instance() is None:
-        raise RuntimeError("no Qt application")
-    fmt = QSurfaceFormat()
-    fmt.setVersion(3, 3)
-    fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
-    qctx = QOpenGLContext()
-    qctx.setFormat(fmt)
-    if not qctx.create():
-        raise RuntimeError("Qt could not create an OpenGL 3.3 context")
-    surf = QOffscreenSurface()
-    surf.setFormat(qctx.format())
-    surf.create()
-    if not qctx.makeCurrent(surf):
-        raise RuntimeError("Qt could not make its OpenGL context current")
-    ctx = moderngl.create_context(require=330)
-    ctx.extra = {"qt": (qctx, surf)}                       # keep them alive as long as the context lives
-    return ctx
+# Ways of getting a headless OpenGL context, tried in this order. On Linux the plain route needs GLX, which some
+# desktops (SteamOS' Xwayland, remote sessions) don't offer, so EGL is tried with several platforms, and finally
+# Mesa's software renderer, which works anywhere (slowly). Each entry: (name, moderngl backend, environment).
+def _routes():
+    import sys
+    r = [("default", None, {}), ("egl", "egl", {})]
+    if sys.platform.startswith("linux"):
+        r += [("egl-surfaceless", "egl", {"EGL_PLATFORM": "surfaceless"}),
+              ("egl-gbm", "egl", {"EGL_PLATFORM": "gbm"}),
+              ("x11", "x11", {}),
+              ("software", "egl", {"EGL_PLATFORM": "surfaceless", "LIBGL_ALWAYS_SOFTWARE": "1", "GALLIUM_DRIVER": "llvmpipe"})]
+    return r
 
 
 def make_context():
-    """A headless OpenGL context (works without a window; EGL / Qt fallbacks on Linux).
-    Set LMM_GL_BACKEND to egl, x11 or qt to try one particular route first."""
+    """A headless OpenGL context (works without a window; several fallbacks on Linux).
+    Set LMM_GL_BACKEND to one of the route names in the error message to try that one first."""
     import os
-    import sys
 
     import moderngl
 
-    routes = [None, "egl"]
-    if sys.platform.startswith("linux"):
-        routes += ["x11", "qt"]
+    routes = _routes()
     forced = os.environ.get("LMM_GL_BACKEND", "").strip().lower()
-    if forced:
-        routes = [None if forced in ("auto", "default") else forced] + [r for r in routes if r != forced]
+    if forced and forced not in ("auto", "default"):
+        routes = [r for r in routes if r[0] == forced] + [r for r in routes if r[0] != forced]
     errors = []
-    for backend in routes:
+    for name, backend, env in routes:
+        saved = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
         try:
-            if backend == "qt":
-                return _qt_context()
             return moderngl.create_standalone_context(require=330, **({"backend": backend} if backend else {}))
         except Exception as e:  # noqa: BLE001
-            errors.append(f"{backend or 'default'}: {str(e).strip()[:200]}")
+            errors.append(f"{name}: {str(e).strip()[:160]}")
+            for k, v in saved.items():                      # a route that failed leaves nothing behind
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
     raise ShaderError("Could not create an OpenGL 3.3 context for rendering visuals: " + "; ".join(errors))
 
 

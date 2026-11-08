@@ -16,11 +16,13 @@
 - **Visualization Studio:** a **Project settings…** window (Ctrl+Shift+G) with visual mode, size, frame rate, quality, blend, cover card, source video and the default transition.
 
 ### Also new
+- The shader editor now has a **Name** box, so a visual can be renamed while you edit it.
 - **Help > About:** credits for the open-source software used (with licences), "Coded by Claude & Emmanuel Hoachlander", and a **Donate with PayPal** button.
 - **Automatic updates:** the app can check GitHub releases and download and install the newest version for you (Install and restart / Later / Skip this version). Turn it off any time under **Help > Check for updates automatically**.
 
 ### Fixes
-- **Linux / Steam Deck (SteamOS):** the Linux build no longer bundles its own graphics and C++ libraries, so it uses the computer's own (newer) graphics drivers; the app also tries more ways of getting OpenGL (EGL, X11 and Qt) and lists what each one said if none works. If needed, start it with `LMM_GL_BACKEND=egl` (or `x11`, `qt`) to try one route first.
+- **Linux / Steam Deck (SteamOS):** the Linux build no longer bundles its own graphics and C++ libraries, so it uses the computer's own (newer) graphics drivers. If the normal OpenGL route isn't available (for example no GLX), the app tries EGL (surfaceless and gbm), X11 and finally software rendering, and lists what each one said if none works. To try one first: `LMM_GL_BACKEND=egl-surfaceless` (or `egl`, `egl-gbm`, `x11`, `software`).
+- Fixes a crash on start-up on the Steam Deck introduced by the previous build's last-resort OpenGL route (it has been removed).
 - Linux: the window lays itself out again after it is maximized, made full screen or resized, which cures widgets piling up on the right and bottom.
 - Windows and macOS builds: tests that don't need OpenGL no longer try to use it, and the live preview test is more patient on machines without a GPU.
 - The **Size** box in the Visuals tab and in the Visualization Studio now stays on the size you pick (it was snapping back to 1280 × 720).
