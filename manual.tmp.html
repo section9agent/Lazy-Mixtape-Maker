@@ -606,3 +606,13 @@ lmm config --overlay off                            turn the lower-left card off
 <li>A copy run from source (<code>python -m lazy_mixtape_maker</code>) never checks on its own, and where the app folder isn't writable the button opens the download page instead.</li>
 </ul>
 <p>In <strong>Edit code</strong> (Visuals tab or Shader Manager) the <strong>Name</strong> box at the top lets you rename a visual you added at the same time as you change its code; renaming alone saves instantly.</p>
+<h2 id="stems-optional-add-on-early-version">Stems (optional add-on, early version)</h2>
+<p>The app can split a song into four <strong>stems</strong>: drums, bass, vocals and everything else. This is the groundwork for stem-based transitions (bass swaps, keeping vocals from clashing, mashups), which are not in the app yet. For now it is a command-line tool.</p>
+<p>The engine (the <code>audio-separator</code> package, which runs Meta's Demucs model) is big, so it is <strong>not</strong> included in the download. To set it up you need Python on your computer:</p>
+<ol>
+<li><code>pip install "audio-separator[cpu]"</code></li>
+<li><code>python -m lazy_mixtape_maker stems --python /path/to/that/python</code> (remembered from then on)</li>
+<li><code>python -m lazy_mixtape_maker stems song.mp3 --out stems-folder</code></li>
+</ol>
+<p>What to expect: the engine and its libraries take roughly 1.5 GB of disk without graphics-card support, and the model (about 80 MB) is downloaded the first time. Without a graphics card, splitting takes about as long as the song plays on a small two-core computer, and it uses about 3 GB of memory. Each song is split only once; the stems are kept in a cache (about the size of the song as a WAV file) and found again even if the song file is renamed or moved. <code>--best</code> gives slightly cleaner stems and takes twice as long; <code>--force</code> splits again.</p>
+<p>Note on licences: the engine's code is MIT, but the terms of the trained Demucs model are not clearly stated by its authors, which is one reason it is a separate download and not part of this app.</p>

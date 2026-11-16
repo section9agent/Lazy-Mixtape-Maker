@@ -16,6 +16,7 @@
 - **Visualization Studio:** a **Project settings…** window (Ctrl+Shift+G) with visual mode, size, frame rate, quality, blend, cover card, source video and the default transition.
 
 ### Also new
+- **Stems (optional add-on, early version):** a command-line tool that splits songs into drums, bass, vocals and other, with a per-song cache. The engine is a separate install (see the manual). This is the groundwork for stem-based transitions, which are not in the app yet.
 - The shader editor now has a **Name** box, so a visual can be renamed while you edit it.
 - **Help > About:** credits for the open-source software used (with licences), "Coded by Claude & Emmanuel Hoachlander", and a **Donate with PayPal** button.
 - **Automatic updates:** the app can check GitHub releases and download and install the newest version for you (Install and restart / Later / Skip this version). Turn it off any time under **Help > Check for updates automatically**.

@@ -13,6 +13,8 @@ for pkg in ("librosa", "imageio_ffmpeg", "soundfile", "miniaudio", "moderngl", "
     except Exception:
         pass
 datas += [(str(ROOT / "lazy_mixtape_maker" / "assets"), "assets")]
+# The stem splitter runs this file with a separate Python (the optional add-on), so it must exist as a real file.
+datas += [(str(ROOT / "lazy_mixtape_maker" / "stems_worker.py"), "lazy_mixtape_maker")]
 
 # Only the Qt parts the app uses keep the download small.
 excludes = ["tkinter", "matplotlib", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.Qt3DCore",

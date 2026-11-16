@@ -430,3 +430,18 @@ The visuals need OpenGL 3.3. The app tries the normal route, then EGL (also with
 - A copy run from source (`python -m lazy_mixtape_maker`) never checks on its own, and where the app folder isn't writable the button opens the download page instead.
 
 In **Edit code** (Visuals tab or Shader Manager) the **Name** box at the top lets you rename a visual you added at the same time as you change its code; renaming alone saves instantly.
+
+
+## Stems (optional add-on, early version)
+
+The app can split a song into four **stems**: drums, bass, vocals and everything else. This is the groundwork for stem-based transitions (bass swaps, keeping vocals from clashing, mashups), which are not in the app yet. For now it is a command-line tool.
+
+The engine (the `audio-separator` package, which runs Meta's Demucs model) is big, so it is **not** included in the download. To set it up you need Python on your computer:
+
+1. `pip install "audio-separator[cpu]"`
+2. `python -m lazy_mixtape_maker stems --python /path/to/that/python` (remembered from then on)
+3. `python -m lazy_mixtape_maker stems song.mp3 --out stems-folder`
+
+What to expect: the engine and its libraries take roughly 1.5 GB of disk without graphics-card support, and the model (about 80 MB) is downloaded the first time. Without a graphics card, splitting takes about as long as the song plays on a small two-core computer, and it uses about 3 GB of memory. Each song is split only once; the stems are kept in a cache (about the size of the song as a WAV file) and found again even if the song file is renamed or moved. `--best` gives slightly cleaner stems and takes twice as long; `--force` splits again.
+
+Note on licences: the engine's code is MIT, but the terms of the trained Demucs model are not clearly stated by its authors, which is one reason it is a separate download and not part of this app.

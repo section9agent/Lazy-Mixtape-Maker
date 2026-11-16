@@ -224,6 +224,46 @@ def cmd_edit(args):
     print("Session updated.")
 
 
+def cmd_stems(args):
+    """Split songs into stems with the optional stem engine (kept in a per-song cache)."""
+    import time
+
+    from . import stems
+    if args.python:
+        try:
+            stems.set_engine_python(args.python)
+        except stems.StemsError as e:
+            sys.exit(f"Error: {e}")
+        print(f"Stem engine: {args.python}")
+    if not args.files:
+        py = stems.engine_python()
+        print(f"Stem engine: {py}" if py else stems.INSTALL_HINT)
+        print(f"Cache: {stems.cache_root()}  ({stems.cache_size() / 1e6:.0f} MB)")
+        return
+    for f in audio_io.list_audio_files(args.files):
+        t0 = time.time()
+        last = [-1]
+
+        def prog(x):
+            pct = int(x * 100)
+            if pct != last[0]:
+                last[0] = pct
+                print(f"\r  {Path(f).name}: {pct}%", end="", flush=True)
+        try:
+            got = stems.split(f, progress=prog, force=args.force, shifts=2 if args.best else stems.SHIFTS)
+        except (stems.StemsUnavailable, stems.StemsError) as e:
+            sys.exit(f"\nError: {e}")
+        took = time.time() - t0
+        print(f"\r  {Path(f).name}: {', '.join(got)}" + (f"  ({took:.0f} s)" if took > 1 else "  (already split)"))
+        if args.out:
+            import shutil
+            d = Path(args.out) / Path(f).stem
+            d.mkdir(parents=True, exist_ok=True)
+            for name, p in got.items():
+                shutil.copyfile(p, d / f"{name}.flac")
+            print(f"    copied to {d}")
+
+
 def build_parser():
     ap = argparse.ArgumentParser(prog="lmm", description="Lazy Mixtape Maker - offline auto-DJ")
     ap.add_argument("--version", action="version", version=__version__)
@@ -315,6 +355,13 @@ def build_parser():
     x = es.add_parser("fx-remove"); x.add_argument("track", type=int); x.add_argument("effect_id")
     es.add_parser("replan", help="let the AI redo everything you haven't edited by hand")
     e.set_defaults(fn=cmd_edit)
+    sm = sub.add_parser("stems", help="(optional add-on) split songs into drums / bass / vocals / other")
+    sm.add_argument("files", nargs="*", help="songs or folders; none = show whether the stem engine is set up")
+    sm.add_argument("--python", help="the Python that has audio-separator installed (remembered)")
+    sm.add_argument("--out", help="also copy the stems into this folder")
+    sm.add_argument("--force", action="store_true", help="split again even if already done")
+    sm.add_argument("--best", action="store_true", help="slightly cleaner stems, twice as slow")
+    sm.set_defaults(fn=cmd_stems)
     return ap
 
 
