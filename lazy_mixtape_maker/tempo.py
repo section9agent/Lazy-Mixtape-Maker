@@ -112,7 +112,7 @@ def _hann(n: int) -> np.ndarray:
     return (0.5 - 0.5 * np.cos(2 * np.pi * np.arange(n) / n)).astype(np.float32)
 
 
-def time_warp(x: np.ndarray, tau, n_out: int, anchors=None) -> np.ndarray:
+def time_warp(x: np.ndarray, tau, n_out: int, anchors=None, guide: int | None = None) -> np.ndarray:
     """Stretch/compress `x` (channels, samples) without changing its pitch.
 
     tau(u) -> position in `x` (in samples, may be fractional) that should be playing
@@ -123,6 +123,9 @@ def time_warp(x: np.ndarray, tau, n_out: int, anchors=None) -> np.ndarray:
     instead of being nudged, so every kick lands on the grid to the sample; the small
     join glitch that causes is hidden under the kick itself.
 
+    guide: when given, only the first `guide` channels decide where the windows go and every other channel
+    simply follows. That is how a song's stems are stretched in perfect step with the song itself.
+
     WSOLA: windows of the input are overlap-added at a fixed hop; each window is
     allowed to slide a little so its start continues the waveform of the one before
     (that keeps bass notes and drum hits in phase, so there is no 'phasiness')."""
@@ -130,7 +133,7 @@ def time_warp(x: np.ndarray, tau, n_out: int, anchors=None) -> np.ndarray:
     C, N = x.shape
     pad = WIN + SEEK + 8
     xp = np.pad(x, ((0, 0), (pad, pad + WIN * 2)))
-    mono = xp.mean(axis=0)
+    mono = (xp[:guide] if guide else xp).mean(axis=0)
     D = DECIM
     nd = len(mono) // D
     mono_d = mono[: nd * D].reshape(nd, D).mean(axis=1)

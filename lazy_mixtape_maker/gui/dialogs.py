@@ -30,7 +30,8 @@ class GenerateDialog(QDialog):
         self.bars.setToolTip("The AI uses each song's whole outro and the next song's whole intro for the blend, up to this many bars."); self.bars.setValue(settings.overlap_bars)
         self.style = QComboBox()
         for k, v in (("auto", "Let the AI choose"), ("eq_swap", "Bass-swap blends"), ("crossfade", "Crossfades"),
-                     ("cut", "Hard cuts with effects")):
+                     ("cut", "Hard cuts with effects"),
+                     ("stem_blend", "Stem blends (songs must be split into stems)")):
             self.style.addItem(v, k)
         self.style.setCurrentIndex(max(0, self.style.findData(settings.transition_style)))
         self.tempo = QComboBox()

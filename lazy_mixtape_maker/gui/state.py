@@ -20,6 +20,7 @@ class AppState(QObject):
     selection = Signal()        # selected track / effect changed
     library_changed = Signal()  # songs added / session loaded
     title_changed = Signal()
+    stems_wanted = Signal(list) # song ids the user asked to split into stems
 
     def __init__(self, shaders: ShaderLibrary | None = None):
         super().__init__()

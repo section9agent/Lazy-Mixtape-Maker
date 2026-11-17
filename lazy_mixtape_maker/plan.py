@@ -21,6 +21,11 @@ from .audio_io import SR
 from .tempo import RateCurve, build_curve
 
 
+# Transitions that mix a song's stems (they need the optional stems add-on; without stems they play as eq_swap).
+STEM_TYPES = ("stem_bass", "stem_blend", "stem_mashup", "stem_vocal_in")
+TRANSITION_TYPES = ("eq_swap", "crossfade", "cut_fx", "cut") + STEM_TYPES
+
+
 def _uid() -> str:
     return uuid.uuid4().hex[:8]
 
@@ -58,7 +63,7 @@ class TrackPlan:
 class Transition:
     from_uid: str
     to_uid: str
-    type: str = "eq_swap"        # eq_swap | crossfade | cut_fx | cut
+    type: str = "eq_swap"        # eq_swap | crossfade | cut_fx | cut | a stem transition (STEM_TYPES)
     overlap_beats: int = 32      # beats at this transition's tempo
     auto: bool = True
     tempo: float = 0.0           # BPM both songs play at during the blend (0 = the mix tempo)
@@ -77,7 +82,7 @@ class MixSettings:
     max_pitch_shift: int = 2           # semitones the mixer may shift to match keys
     key_match: bool = True
     order: str = "auto"                # "auto" or "given"
-    transition_style: str = "auto"     # auto | eq_swap | crossfade | cut
+    transition_style: str = "auto"     # auto | eq_swap | crossfade | cut | stem_blend (falls back without stems)
     use_effects: bool = True
     track_lufs: float = -16.0          # per-song loudness target before the master limiter
     seed: int = 0
@@ -299,6 +304,8 @@ def _auto_transition(a: TrackPlan, b: TrackPlan, tr_matched: bool, plan: MixPlan
     ttype = "eq_swap" if bars >= 4 else "crossfade"
     if style in ("eq_swap", "crossfade"):
         ttype = style
+    elif style == "stem_blend":          # stem blends wherever a proper blend fits
+        ttype = "stem_blend" if bars >= 4 else "crossfade"
     elif ttype == "eq_swap" and rng.random() < 0.2:
         ttype = "crossfade"
     return ttype, bars * 4
@@ -539,7 +546,7 @@ def set_transition(plan, lib, after_index, type=None, overlap_beats=None):
     if tr is None:
         raise IndexError("There is no transition after the last track")
     if type is not None:
-        if type not in ("eq_swap", "crossfade", "cut_fx", "cut"):
+        if type not in TRANSITION_TYPES:
             raise ValueError(f"Unknown transition type '{type}'")
         tr.type = type
     if overlap_beats is not None:

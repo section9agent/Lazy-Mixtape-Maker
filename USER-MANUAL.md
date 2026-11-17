@@ -432,16 +432,40 @@ The visuals need OpenGL 3.3. The app tries the normal route, then EGL (also with
 In **Edit code** (Visuals tab or Shader Manager) the **Name** box at the top lets you rename a visual you added at the same time as you change its code; renaming alone saves instantly.
 
 
-## Stems (optional add-on, early version)
+## Stems and stem transitions (optional add-on)
 
-The app can split a song into four **stems**: drums, bass, vocals and everything else. This is the groundwork for stem-based transitions (bass swaps, keeping vocals from clashing, mashups), which are not in the app yet. For now it is a command-line tool.
+The app can split a song into four **stems** (drums, bass, vocals and everything else) and use them for transitions that an ordinary blend can't do.
+
+### The four stem transitions
+
+Pick them in the **Transition** tab under *Style*, like any other transition:
+
+- **Stems: true bass swap** - a DJ blend where the real bass lines swap in the middle (not just the low frequencies, which also carry kick drums).
+- **Stems: bass and singers swap** - the same, and only one singer is ever heard: the old singer until the middle, the new one after it. Use this when two vocals would clash.
+- **Stems: mashup** - this song's singer carries on over the *next* song's music, and hands over to the new singer at the end of the blend.
+- **Stems: next singer arrives** - the next song's singer comes in over this song's music, then the music changes underneath.
+
+Longer blends (16 to 32 beats or more) suit these best. For mashups it helps when the two songs are in matching keys.
+
+To have the AI use stem blends wherever a proper blend fits, choose **Stem blends** as the transition style in the settings window (or in Mix > Project settings).
+
+### Splitting songs
+
+A stem transition needs both of its songs split. The Transition tab tells you when they aren't and offers **Split these two songs into stems…**; **Mix > Split songs into stems…** does every song in the mix. Each song is split once and remembered, even if the file is later renamed or moved. Until its songs are split, a stem transition simply plays as a normal bass-swap blend, and the status bar says so.
+
+Away from the blend the song is left exactly as it was: stems are only used inside the overlap.
+
+### Setting up the engine
 
 The engine (the `audio-separator` package, which runs Meta's Demucs model) is big, so it is **not** included in the download. To set it up you need Python on your computer:
 
 1. `pip install "audio-separator[cpu]"`
-2. `python -m lazy_mixtape_maker stems --python /path/to/that/python` (remembered from then on)
-3. `python -m lazy_mixtape_maker stems song.mp3 --out stems-folder`
+2. `python -m lazy_mixtape_maker stems --python /path/to/that/python` (remembered from then on; with the packaged app, run the app's own program file with the same `stems --python …` words)
 
-What to expect: the engine and its libraries take roughly 1.5 GB of disk without graphics-card support, and the model (about 80 MB) is downloaded the first time. Without a graphics card, splitting takes about as long as the song plays on a small two-core computer, and it uses about 3 GB of memory. Each song is split only once; the stems are kept in a cache (about the size of the song as a WAV file) and found again even if the song file is renamed or moved. `--best` gives slightly cleaner stems and takes twice as long; `--force` splits again.
+You can also split from the command line: `python -m lazy_mixtape_maker stems song.mp3 --out stems-folder`.
+
+What to expect: the engine and its libraries take roughly 1.5 to 2.5 GB of disk, and the model (about 80 MB) is downloaded the first time. Without a graphics card, splitting takes about as long as the song plays on a small two-core computer and uses about 3 GB of memory. The stems of a song take about as much disk as the song as a WAV file. `--best` gives slightly cleaner stems and takes twice as long; `--force` splits again.
+
+How clean the stems are depends on the music: the engine can leave a trace of a singer in the music or the other way round.
 
 Note on licences: the engine's code is MIT, but the terms of the trained Demucs model are not clearly stated by its authors, which is one reason it is a separate download and not part of this app.

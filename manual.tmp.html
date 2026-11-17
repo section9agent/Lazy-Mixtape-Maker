@@ -606,13 +606,28 @@ lmm config --overlay off                            turn the lower-left card off
 <li>A copy run from source (<code>python -m lazy_mixtape_maker</code>) never checks on its own, and where the app folder isn't writable the button opens the download page instead.</li>
 </ul>
 <p>In <strong>Edit code</strong> (Visuals tab or Shader Manager) the <strong>Name</strong> box at the top lets you rename a visual you added at the same time as you change its code; renaming alone saves instantly.</p>
-<h2 id="stems-optional-add-on-early-version">Stems (optional add-on, early version)</h2>
-<p>The app can split a song into four <strong>stems</strong>: drums, bass, vocals and everything else. This is the groundwork for stem-based transitions (bass swaps, keeping vocals from clashing, mashups), which are not in the app yet. For now it is a command-line tool.</p>
+<h2 id="stems-and-stem-transitions-optional-add-on">Stems and stem transitions (optional add-on)</h2>
+<p>The app can split a song into four <strong>stems</strong> (drums, bass, vocals and everything else) and use them for transitions that an ordinary blend can't do.</p>
+<h3 id="the-four-stem-transitions">The four stem transitions</h3>
+<p>Pick them in the <strong>Transition</strong> tab under <em>Style</em>, like any other transition:</p>
+<ul>
+<li><strong>Stems: true bass swap</strong> - a DJ blend where the real bass lines swap in the middle (not just the low frequencies, which also carry kick drums).</li>
+<li><strong>Stems: bass and singers swap</strong> - the same, and only one singer is ever heard: the old singer until the middle, the new one after it. Use this when two vocals would clash.</li>
+<li><strong>Stems: mashup</strong> - this song's singer carries on over the <em>next</em> song's music, and hands over to the new singer at the end of the blend.</li>
+<li><strong>Stems: next singer arrives</strong> - the next song's singer comes in over this song's music, then the music changes underneath.</li>
+</ul>
+<p>Longer blends (16 to 32 beats or more) suit these best. For mashups it helps when the two songs are in matching keys.</p>
+<p>To have the AI use stem blends wherever a proper blend fits, choose <strong>Stem blends</strong> as the transition style in the settings window (or in Mix &gt; Project settings).</p>
+<h3 id="splitting-songs">Splitting songs</h3>
+<p>A stem transition needs both of its songs split. The Transition tab tells you when they aren't and offers <strong>Split these two songs into stems…</strong>; <strong>Mix &gt; Split songs into stems…</strong> does every song in the mix. Each song is split once and remembered, even if the file is later renamed or moved. Until its songs are split, a stem transition simply plays as a normal bass-swap blend, and the status bar says so.</p>
+<p>Away from the blend the song is left exactly as it was: stems are only used inside the overlap.</p>
+<h3 id="setting-up-the-engine">Setting up the engine</h3>
 <p>The engine (the <code>audio-separator</code> package, which runs Meta's Demucs model) is big, so it is <strong>not</strong> included in the download. To set it up you need Python on your computer:</p>
 <ol>
 <li><code>pip install "audio-separator[cpu]"</code></li>
-<li><code>python -m lazy_mixtape_maker stems --python /path/to/that/python</code> (remembered from then on)</li>
-<li><code>python -m lazy_mixtape_maker stems song.mp3 --out stems-folder</code></li>
+<li><code>python -m lazy_mixtape_maker stems --python /path/to/that/python</code> (remembered from then on; with the packaged app, run the app's own program file with the same <code>stems --python …</code> words)</li>
 </ol>
-<p>What to expect: the engine and its libraries take roughly 1.5 GB of disk without graphics-card support, and the model (about 80 MB) is downloaded the first time. Without a graphics card, splitting takes about as long as the song plays on a small two-core computer, and it uses about 3 GB of memory. Each song is split only once; the stems are kept in a cache (about the size of the song as a WAV file) and found again even if the song file is renamed or moved. <code>--best</code> gives slightly cleaner stems and takes twice as long; <code>--force</code> splits again.</p>
+<p>You can also split from the command line: <code>python -m lazy_mixtape_maker stems song.mp3 --out stems-folder</code>.</p>
+<p>What to expect: the engine and its libraries take roughly 1.5 to 2.5 GB of disk, and the model (about 80 MB) is downloaded the first time. Without a graphics card, splitting takes about as long as the song plays on a small two-core computer and uses about 3 GB of memory. The stems of a song take about as much disk as the song as a WAV file. <code>--best</code> gives slightly cleaner stems and takes twice as long; <code>--force</code> splits again.</p>
+<p>How clean the stems are depends on the music: the engine can leave a trace of a singer in the music or the other way round.</p>
 <p>Note on licences: the engine's code is MIT, but the terms of the trained Demucs model are not clearly stated by its authors, which is one reason it is a separate download and not part of this app.</p>

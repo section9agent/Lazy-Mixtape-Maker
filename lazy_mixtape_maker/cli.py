@@ -90,6 +90,8 @@ def cmd_render(args):
     res = export_session(s, args.output, cb)
     _done()
     print(f"Mix written: {res['audio']}  ({_fmt(res['seconds'])})")
+    for note in res.get("notes", []):
+        print("Note:", note)
 
 
 def cmd_video(args):
@@ -284,7 +286,7 @@ def build_parser():
     m.add_argument("--keep-order", action="store_true", help="don't reorder songs")
     m.add_argument("--no-effects", action="store_true")
     m.add_argument("--no-key-match", action="store_true")
-    m.add_argument("--transition-style", choices=["auto", "eq_swap", "crossfade", "cut"], default="auto")
+    m.add_argument("--transition-style", choices=["auto", "eq_swap", "crossfade", "cut", "stem_blend"], default="auto")
     m.add_argument("--seed", type=int, default=0)
     m.set_defaults(fn=cmd_mix)
 
@@ -340,7 +342,7 @@ def build_parser():
     x = es.add_parser("remove"); x.add_argument("track", type=int)
     x = es.add_parser("add"); x.add_argument("file"); x.add_argument("--position", type=int)
     x = es.add_parser("transition", help="timing/type of the blend after a track")
-    x.add_argument("after", type=int); x.add_argument("--type", choices=["eq_swap", "crossfade", "cut_fx", "cut"])
+    x.add_argument("after", type=int); x.add_argument("--type", choices=list(planmod.TRANSITION_TYPES))
     x.add_argument("--beats", type=int, help="blend length in beats")
     x = es.add_parser("bounds", help="where a song starts/ends playing (source seconds)")
     x.add_argument("track", type=int); x.add_argument("--start", type=float); x.add_argument("--end", type=float)

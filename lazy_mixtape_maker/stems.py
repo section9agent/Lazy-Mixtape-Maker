@@ -154,6 +154,59 @@ def split(path, song_id: str | None = None, progress=None, cancel=None, force: b
     return cached(song_id) or {}
 
 
+def measure_lag(path, stem_paths, sr: int = 44100) -> float:
+    """Seconds the stems run behind (+) or ahead of (-) the app's own decoding of the song.
+
+    The engine and the app read compressed files with different decoders, which can disagree by a few
+    hundredths of a second (MP3 encoder delay). Stem transitions subtract a stem from the song, so the two
+    must line up to the sample; this finds the offset by comparing a stretch of the song with its stems."""
+    import numpy as np
+
+    from .audio_io import decode
+    try:
+        from .studio import probe_duration
+        dur = probe_duration(path)
+    except Exception:  # noqa: BLE001
+        dur = 60.0
+    start = max(0.0, min(30.0, dur * 0.25))
+    span = max(2.0, min(30.0, dur - start - 0.5))
+    x = decode(path, sr=sr, channels=1, start=start, duration=span)[0]
+    s = None
+    for p in stem_paths:
+        y = decode(p, sr=sr, channels=1, start=start, duration=span)[0]
+        n = min(len(x), len(y)) if s is None else min(len(s), len(y))
+        s = y[:n] if s is None else s[:n] + y[:n]
+    n = min(len(x), len(s))
+    if n < sr // 2:
+        return 0.0
+    x, s = x[:n], s[:n]
+    size = 1 << int(np.ceil(np.log2(2 * n)))
+    c = np.fft.irfft(np.conj(np.fft.rfft(x, size)) * np.fft.rfft(s, size), size)      # c[k] = sum x[n] * s[n + k]
+    reach = int(0.25 * sr)
+    cand = np.concatenate([c[-reach:], c[:reach + 1]])
+    k = int(np.argmax(cand)) - reach
+    if cand.max() <= 0:
+        return 0.0
+    return k / sr
+
+
+def lag(song_id: str, path) -> float:
+    """The stored offset of a song's stems (measured and remembered the first time it is needed)."""
+    d = song_dir(song_id)
+    try:
+        meta = json.loads((d / "stems.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0.0
+    if "lag" not in meta:
+        hit = cached(song_id) or {}
+        try:
+            meta["lag"] = measure_lag(path, list(hit.values())) if hit else 0.0
+            (d / "stems.json").write_text(json.dumps(meta), encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            return 0.0
+    return float(meta.get("lag") or 0.0)
+
+
 def load(song_id: str, stem: str, sr: int | None = None):
     """A stem as float32 audio (frames, channels) at `sr` (default: as stored)."""
     import numpy as np

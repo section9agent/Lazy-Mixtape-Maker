@@ -21,6 +21,10 @@ TRANSITION_LABELS = {
     "crossfade": "Crossfade",
     "cut_fx": "Cut with an effect",
     "cut": "Hard cut",
+    "stem_bass": "Stems: true bass swap",
+    "stem_blend": "Stems: bass and singers swap (one singer at a time)",
+    "stem_mashup": "Stems: mashup - this singer over the next song's music",
+    "stem_vocal_in": "Stems: next singer arrives over this song's music",
 }
 
 
@@ -259,6 +263,13 @@ class TransitionTab(_Tab):
         form.addRow(self.fx)
         form.addRow(self.auto_btn)
         lay.addWidget(box)
+        self.stems_note = QLabel()
+        self.stems_note.setWordWrap(True)
+        self.stems_note.setStyleSheet("color:#8b93a1")
+        self.stems_btn = QPushButton("Split these two songs into stems…")
+        self.stems_btn.clicked.connect(self._split)
+        lay.addWidget(self.stems_note)
+        lay.addWidget(self.stems_btn)
         hint = QLabel("Tip: you can also drag a song left or right in the timeline to change how long it "
                       "overlaps the one before it.")
         hint.setWordWrap(True); hint.setStyleSheet("color:#8b93a1")
@@ -276,6 +287,29 @@ class TransitionTab(_Tab):
         i = self.idx()
         self.state.edit(lambda p, lib: planmod.set_transition_fx(p, lib, i, on))
 
+    def _pair(self):
+        i = self.idx()
+        return [self.state.plan.tracks[k].song_id for k in (i, i + 1)]
+
+    def _unsplit(self):
+        from .. import stems
+        return [sid for sid in dict.fromkeys(self._pair()) if not stems.cached(sid)]
+
+    def _split(self):
+        if self._tr() is not None:
+            self.state.stems_wanted.emit(self._unsplit())
+
+    def _stems_state(self, tr):
+        """Show whether a stem transition can actually be played with stems right now."""
+        stem = tr is not None and tr.type in planmod.STEM_TYPES
+        self.stems_note.setVisible(stem)
+        todo = self._unsplit() if stem else []
+        self.stems_btn.setVisible(bool(todo))
+        if stem:
+            self.stems_note.setText("These two songs have been split into stems." if not todo else
+                                    "This style needs both songs split into stems. Until they are, it plays as a "
+                                    "normal bass-swap blend.")
+
     def _tr(self):
         i = self.idx()
         return self.state.plan.transition_after(i) if i >= 0 else None
@@ -284,6 +318,7 @@ class TransitionTab(_Tab):
         tr = self._tr()
         for w in (self.type, self.beats, self.auto_btn, self.fx):
             w.setEnabled(tr is not None)
+        self._stems_state(tr)
         if tr is None:
             self.head.setText("Select a song that has another one after it")
             self.len_label.setText("")

@@ -37,11 +37,12 @@ def new_session(files, settings: MixSettings | None = None, progress=None, name=
 
 def export_session(session: Session, out_path, progress=None, write_cue: bool = True, audio=None) -> dict:
     out_path = Path(out_path)
+    notes: list = []
     if audio is None:
-        audio = render_mix(session.plan, session.library, session.paths, progress=progress)
+        audio = render_mix(session.plan, session.library, session.paths, progress=progress, notes=notes)
     meta = {"title": session.name, "artist": "Lazy Mixtape Maker"}
     audio_io.write_audio(out_path, audio, metadata=meta)
-    result = {"audio": str(out_path), "seconds": audio.shape[1] / audio_io.SR}
+    result = {"audio": str(out_path), "seconds": audio.shape[1] / audio_io.SR, "notes": notes}
     if write_cue:
         cue_path = out_path.with_suffix(".cue")
         txt_path = out_path.with_suffix(".tracklist.txt")

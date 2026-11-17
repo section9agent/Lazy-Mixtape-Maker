@@ -94,6 +94,7 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         self._build_actions()
         self._init_player()
         self.init_updates()
+        self.state.stems_wanted.connect(self.split_stems)
         s = self.state
         s.changed.connect(self._on_changed)
         s.selection.connect(self._on_selection)
@@ -207,6 +208,9 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         self.a_settings = act("Project settings…", self.project_settings, "Ctrl+Shift+G",
                               "The same options as when you add a folder: style, blends, tempo, keys, effects…")
         self.a_refresh = act("Refresh AI suggestions", self.refresh_ai, None, "Re-pick everything you haven't changed by hand")
+        self.a_stems = act("Split songs into stems…", lambda: self.split_stems(), None,
+                           "Optional add-on: split every song in the mix into drums, bass, vocals and other, "
+                           "for the stem transitions")
         self.a_play = act("Play", self.toggle_play, "Space", None, "▶")
         self.a_stop = act("Stop", self.stop, None, None, "■")
         self.a_audio = act("Export audio", self.export_audio, "Ctrl+E", "Save the mix as WAV, MP3 or FLAC", "♪")
@@ -240,7 +244,7 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         for a in (self.a_undo, self.a_redo, None, self.a_info, self.a_del):
             e.addAction(a) if a else e.addSeparator()
         mx = m.addMenu("&Mix")
-        for a in (self.a_gen, self.a_settings, self.a_refresh, None, self.a_play, self.a_stop):
+        for a in (self.a_gen, self.a_settings, self.a_refresh, self.a_stems, None, self.a_play, self.a_stop):
             mx.addAction(a) if a else mx.addSeparator()
         tm = m.addMenu("&Tools")
         tm.addAction(self.a_vpreview)
@@ -313,8 +317,10 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         self._preview_n += 1
         out = self.tmp / f"preview_{self._preview_n}.wav"
 
+        notes: list = []
+
         def job(cb, cancel):
-            audio = render_mix(plan, lib, paths, progress=lambda m, f: cb(m, f * 0.95))
+            audio = render_mix(plan, lib, paths, progress=lambda m, f: cb(m, f * 0.95), notes=notes)
             sf.write(str(out), audio.T, SR, subtype="PCM_16")
             return str(out)
 
@@ -322,8 +328,57 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
             if full:
                 self.state.preview_path = path
             self._start_audio(path, full, then_at)
+            if notes:
+                self.statusBar().showMessage(notes[0] if len(notes) == 1 else
+                                             f"{len(notes)} stem transitions played as normal blends: those songs "
+                                             "haven't been split into stems (Mix > Split songs into stems).", 12000)
 
         self.run_task("Rendering preview…", job, done)
+
+    def split_stems(self, song_ids=None):
+        """Split songs into stems with the optional engine (all songs of the mix when none are named)."""
+        from .. import stems
+        st = self.state
+        ids = list(dict.fromkeys(song_ids if song_ids is not None else [t.song_id for t in st.plan.tracks]))
+        todo = [s for s in ids if s in st.paths and not stems.cached(s)]
+        if not ids:
+            return
+        if not todo:
+            self.statusBar().showMessage("These songs have already been split into stems.", 5000)
+            return
+        if not stems.available():
+            QMessageBox.information(self, APP, stems.INSTALL_HINT)
+            return
+        secs = sum(float(getattr(st.lib[s], "duration", 0) or 0) for s in todo)
+        if QMessageBox.question(self, APP, f"Split {len(todo)} song{'s' if len(todo) != 1 else ''} into stems?\n\n"
+                                f"Without a graphics card this takes roughly as long as the songs play"
+                                + (f" (about {max(1, round(secs / 60))} min)" if secs else "") +
+                                ", and it only has to be done once per song.") != QMessageBox.StandardButton.Yes:
+            return
+        lib, paths = st.lib, st.paths
+
+        def job(cb, cancel):
+            n = 0
+            for i, sid in enumerate(todo):
+                name = lib[sid].title or Path(paths[sid]).name
+                cb(f"Splitting {name} ({i + 1}/{len(todo)})…", i / len(todo))
+                try:
+                    stems.split(paths[sid], sid, cancel=cancel,
+                                progress=lambda f, i=i, name=name: cb(f"Splitting {name} ({i + 1}/{len(todo)})…", (i + f) / len(todo)))
+                    stems.lag(sid, paths[sid])
+                except stems.StemsError as e:
+                    if str(e) == "Cancelled":
+                        break
+                    raise
+                n += 1
+            return n
+
+        def done(n):
+            st.preview_path = None                 # the mix sounds different now: render it afresh
+            st.changed.emit()
+            self.statusBar().showMessage(f"{n} of {len(todo)} songs split into stems.", 8000)
+
+        self.run_task("Splitting into stems…", job, done)
 
     def toggle_play(self):
         if not self.state.plan.tracks:
