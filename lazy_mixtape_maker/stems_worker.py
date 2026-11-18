@@ -24,6 +24,42 @@ def say(**kw):
         print(line, flush=True)
 
 
+def ensure_ffmpeg(bin_dir):
+    """The engine insists on a program called "ffmpeg" on the PATH. When there isn't one, put the copy of
+    ffmpeg that comes with the app (or with imageio-ffmpeg) there under that name."""
+    import shutil
+    if shutil.which("ffmpeg"):
+        return
+    src = os.environ.get("LMM_FFMPEG")
+    if not src or not os.path.exists(src):
+        try:
+            import imageio_ffmpeg
+            src = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:  # noqa: BLE001
+            return
+    os.makedirs(bin_dir, exist_ok=True)
+    dst = os.path.join(bin_dir, "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg")
+    if not os.path.exists(dst) or os.path.getsize(dst) != os.path.getsize(src):
+        tmp = dst + ".part"
+        try:
+            if sys.platform == "win32":
+                shutil.copyfile(src, tmp)
+            else:
+                if os.path.lexists(tmp):
+                    os.remove(tmp)
+                os.symlink(src, tmp)
+            os.replace(tmp, dst)
+        except OSError:
+            shutil.copyfile(src, tmp)
+            os.replace(tmp, dst)
+        if sys.platform != "win32":
+            try:
+                os.chmod(src, os.stat(src).st_mode | 0o111)
+            except OSError:
+                pass
+    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+
+
 def main(argv):
     if len(argv) < 6:
         say(event="error", message="usage: stems_worker <song> <output folder> <models folder> <model> <shifts>")
@@ -39,6 +75,7 @@ def main(argv):
         return 2
     os.makedirs(out, exist_ok=True)
     os.makedirs(models, exist_ok=True)
+    ensure_ffmpeg(os.path.join(os.path.dirname(os.path.abspath(models)), "stems-bin"))
     try:
         import tqdm as _tqdm                                    # report the engine's own progress bar as JSON lines
 

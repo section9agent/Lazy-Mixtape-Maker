@@ -50,9 +50,11 @@ jobs:
         if: matrix.variant == 'stems'
         shell: bash
         run: |
-          pip install -r requirements-stems.txt
-          python -c "from audio_separator.separator import Separator as S; S(model_file_dir='packaging/stems-models').load_model('htdemucs.yaml')"
-          ls -la packaging/stems-models
+          set -o pipefail
+          # On failure, show the end of the output as an error (the full log isn't always easy to get at).
+          fail() { echo "::error title=$1::$(tail -c 3500 log.txt | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"; exit 1; }
+          pip install -r requirements-stems.txt 2>&1 | tee log.txt || fail "pip install"
+          python packaging/fetch_stems_model.py 2>&1 | tee log.txt || fail "model download"
       # The runners have no GPU. Tests that need OpenGL skip themselves when it isn't there.
       # (The stems build runs the same code; it is checked by the smoke test after packaging instead.)
       - run: python -m pytest -x -q
@@ -60,9 +62,13 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
           LMM_AUDIO_BACKEND: "null"
-      - run: pyinstaller packaging/lmm.spec --noconfirm
+      - name: Package
+        shell: bash
         env:
           LMM_VARIANT: ${{ matrix.variant }}
+        run: |
+          set -o pipefail
+          pyinstaller packaging/lmm.spec --noconfirm 2>&1 | tee log.txt || { echo "::error title=pyinstaller::$(tail -c 3500 log.txt | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"; exit 1; }
       - name: Smoke test - split a song with the packaged engine
         if: matrix.variant == 'stems'
         shell: bash
@@ -70,7 +76,8 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ]; then APP="dist/Lazy Mixtape Maker.app/Contents/MacOS/LazyMixtapeMaker";
           elif [ "$RUNNER_OS" = "Windows" ]; then APP="dist/LazyMixtapeMaker/LazyMixtapeMaker.exe";
           else APP="dist/LazyMixtapeMaker/LazyMixtapeMaker"; fi
-          python packaging/smoke_stems.py "$APP"
+          set -o pipefail
+          python packaging/smoke_stems.py "$APP" 2>&1 | tee log.txt || { echo "::error title=smoke test::$(tail -c 3500 log.txt | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"; exit 1; }
       - name: Zip
         shell: bash
         run: |

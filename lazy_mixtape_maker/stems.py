@@ -149,6 +149,11 @@ def _run_worker(cmd, progress, cancel, status: Path | None = None):
     status.write_text("", encoding="utf-8")
     kw = {"creationflags": 0x08000000} if sys.platform == "win32" else {}           # no console window
     env = dict(os.environ, LMM_STEMS_STATUS=str(status))
+    try:
+        from .audio_io import ffmpeg
+        env["LMM_FFMPEG"] = ffmpeg()                     # the engine needs ffmpeg; the app has its own copy
+    except Exception:  # noqa: BLE001
+        pass
     p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, **kw)
     done, pos, buf = None, 0, ""
     try:
