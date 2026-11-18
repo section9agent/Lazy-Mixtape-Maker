@@ -494,15 +494,17 @@ Note on licences: the engine's code is MIT, but the terms of the trained Demucs 
 ### The screen
 
 - **Songs** - song A and song B, with their tempo and key (and what they become after matching). **Split into stems** splits whichever of the two isn't split yet (once per song).
-- **Matching** -
-  - **Beat match** plays both songs at one tempo: song A's, song B's, or one you type in. Bars of the timeline then line up with bars of both songs.
-  - **Key match** shifts one song (at most 4 semitones) into a key that goes with the other; choose whose key is kept. The **Pitch** boxes override it with your own shift (*auto* = key matching decides).
-- **Let the AI do it** - pick a style and press **✨ Mash it up**:
-  - *Song B's vocals over song A's music* (or the other way round): the music song plays from its first downbeat, its intro runs alone, then the other song's singer comes in on a downbeat, in whole 4-bar phrases, and the music plays out at the end.
-  - *Trade back and forth*: both songs run side by side and every 16 bars the music swaps from one song to the other, while the other song sings over it.
-  - *Let the AI choose*: the song that sings more lends its vocals.
-  The AI replaces the clips there are; **Undo** brings them back.
-- **The timeline** - eight lanes: vocals, drums, bass and other of song A, then of song B. Each coloured block is a **clip**: a stretch of one stem placed at a time.
+- **Beat match** plays both songs at one tempo: song A's, song B's, or one you type in. Bars of the timeline then line up with bars of both songs.
+- **Key match** shifts one song (at most 4 semitones) into a key that goes with the other; choose whose key is kept. The **Pitch** boxes override it with your own shift (*auto* = key matching decides).
+- **The timeline** has eight lanes: vocals, drums, bass and other of song A, then of song B. Each coloured block is a **clip**: a stretch of one stem placed at a time.
+
+### Letting the AI do it
+
+Pick a style and press **✨ Mash it up**. The AI replaces the clips there are; **Undo** brings them back.
+
+- **Song B's vocals over song A's music** (or the other way round): the music song plays from its first downbeat and its intro runs alone. Then the other song's singer comes in on a downbeat, in whole 4-bar phrases, and the music plays out at the end.
+- **Trade back and forth**: both songs run side by side, and every 16 bars the music swaps from one song to the other while the other song sings over it.
+- **Let the AI choose**: the song that sings more lends its vocals.
 
 ### Editing clips
 
