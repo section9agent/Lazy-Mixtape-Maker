@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QHBoxLayout, QHeaderView, QLabel, QMessageBox,
                                QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout)
 
@@ -58,8 +58,13 @@ class DeepDialog(QDialog):
         row.addStretch(1)
         row.addWidget(close)
         lay.addLayout(row)
-        self.state.changed.connect(self.refresh)
+        self._boxes: dict[str, QComboBox] = {}
+        self._ids: list[str] = []
+        self.state.changed.connect(self._later)
         self.refresh()
+
+    def _later(self):
+        QTimer.singleShot(0, self.refresh)            # never rebuild the table from inside one of its own widgets
 
     def song_ids(self) -> list[str]:
         return list(dict.fromkeys(t.song_id for t in self.state.plan.tracks))
@@ -67,7 +72,18 @@ class DeepDialog(QDialog):
     def refresh(self):
         st = self.state
         ids = self.song_ids()
-        self.table.setRowCount(len(ids))
+        if ids != self._ids:                           # the songs changed: new rows and new choosers
+            self.table.setRowCount(0)
+            self.table.setRowCount(len(ids))
+            self._boxes = {}
+            for r, sid in enumerate(ids):
+                box = QComboBox()
+                box.addItem("The app's analysis", APP_A)
+                box.addItem("All-In-One", DEEP_A)
+                box.currentIndexChanged.connect(lambda _i, sid=sid, box=box: self.choose(sid, box.currentData() == DEEP_A))
+                self.table.setCellWidget(r, 3, box)
+                self._boxes[sid] = box
+            self._ids = list(ids)
         extra = st.session.extra
         todo = 0
         for r, sid in enumerate(ids):
@@ -90,13 +106,11 @@ class DeepDialog(QDialog):
                 theirs = "not split into stems yet" if not stems.cached(sid) else "not analysed yet"
                 todo += 1
             self.table.setItem(r, 2, QTableWidgetItem(theirs))
-            box = QComboBox()
-            box.addItem("The app's analysis", APP_A)
-            box.addItem("All-In-One", DEEP_A)
+            box = self._boxes[sid]
+            box.blockSignals(True)
             box.model().item(1).setEnabled(bool(res))
             box.setCurrentIndex(1 if using else 0)
-            box.currentIndexChanged.connect(lambda _i, sid=sid, box=box: self.choose(sid, box.currentData() == DEEP_A))
-            self.table.setCellWidget(r, 3, box)
+            box.blockSignals(False)
         self.table.resizeRowsToContents()
         ok = deep.available()
         self.b_run.setEnabled(ok and todo > 0)

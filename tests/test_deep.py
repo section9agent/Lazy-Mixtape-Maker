@@ -102,6 +102,8 @@ def test_choose_per_song_with_undo_and_the_window(mixwin, monkeypatch):
     rate_before = st.plan.tracks[0].rate
     box = dlg.table.cellWidget(0, 3)
     box.setCurrentIndex(1)                                           # use All-In-One for the first song
+    QApplication.processEvents()
+    assert dlg.table.cellWidget(0, 3) is box and box.currentIndex() == 1
     assert deep.in_use(st.session.extra, sid)
     assert st.lib[sid].bpm == pytest.approx(before[0] + 3.0, abs=0.05)
     assert [s.label for s in st.lib[sid].sections][:2] == ["intro", "verse"]

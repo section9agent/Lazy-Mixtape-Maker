@@ -173,6 +173,7 @@ def summary(an: SongAnalysis, sections=None, bpm=None, origin=None) -> str:
         first -= bar
     while first < -0.01:
         first += bar
+    first = max(0.0, first)
     parts = " · ".join(f"{s.label} {int(s.start // 60)}:{int(s.start % 60):02d}" for s in sections[:12])
     return f"{bpm:.1f} BPM, first downbeat {first:.2f} s  |  {parts}"
 
