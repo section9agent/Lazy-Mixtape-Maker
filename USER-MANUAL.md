@@ -26,6 +26,10 @@ Works with **mp3, wav, flac and m4a** audio files, and with **video files** (mp4
 14. [Keyboard shortcuts](#14-keyboard-shortcuts)
 15. [Command line](#15-command-line)
 16. [Tips and troubleshooting](#16-tips-and-troubleshooting)
+17. [OpenGL troubleshooting (Linux and Steam Deck)](#troubleshooting-opengl-not-available-linux-and-steam-deck)
+18. [About, donations and updates](#about-donations-and-updates)
+19. [Stems and stem transitions](#stems-and-stem-transitions)
+20. [Mashup Studio](#mashup-studio)
 
 ---
 
@@ -354,6 +358,7 @@ Very long files (over about 40 minutes) work too; the music-reactive part of the
 | Ctrl+Z / Ctrl+Shift+Z | Undo / Redo |
 | Delete | Remove the selected song |
 | Ctrl+Shift+V | Visualization Studio |
+| Ctrl+Shift+M | Mashup Studio |
 | Ctrl+Q | Quit |
 
 **Visualization Studio**
@@ -369,6 +374,18 @@ Very long files (over about 40 minutes) work too; the music-reactive part of the
 | Delete | Remove the selected marker |
 | Ctrl+Z / Ctrl+Shift+Z | Undo / Redo |
 | Ctrl+W | Close the studio |
+
+**Mashup Studio**
+
+| Keys | Action |
+|---|---|
+| Ctrl+N / Ctrl+O / Ctrl+S | New / Open / Save mashup |
+| Space | Play / pause |
+| Ctrl+E | Export |
+| Delete | Delete the selected clip |
+| Shift while dragging | Don't snap |
+| Ctrl + mouse wheel | Zoom |
+| Ctrl+Z / Ctrl+Shift+Z | Undo / Redo |
 
 ---
 
@@ -432,7 +449,7 @@ The visuals need OpenGL 3.3. The app tries the normal route, then EGL (also with
 In **Edit code** (Visuals tab or Shader Manager) the **Name** box at the top lets you rename a visual you added at the same time as you change its code; renaming alone saves instantly.
 
 
-## Stems and stem transitions (optional add-on)
+## Stems and stem transitions
 
 The app can split a song into four **stems** (drums, bass, vocals and everything else) and use them for transitions that an ordinary blend can't do.
 
@@ -455,17 +472,48 @@ A stem transition needs both of its songs split. The Transition tab tells you wh
 
 Away from the blend the song is left exactly as it was: stems are only used inside the overlap.
 
-### Setting up the engine
+### Getting the stem engine
 
-The engine (the `audio-separator` package, which runs Meta's Demucs model) is big, so it is **not** included in the download. To set it up you need Python on your computer:
+The stem engine (the `audio-separator` package running Meta's Demucs model with PyTorch) is large, so there are **two downloads** of the app on the releases page:
 
-1. `pip install "audio-separator[cpu]"`
-2. `python -m lazy_mixtape_maker stems --python /path/to/that/python` (remembered from then on; with the packaged app, run the app's own program file with the same `stems --python …` words)
+- **LazyMixtapeMaker-Windows / -macOS / -Linux** - the normal app, without stems.
+- **LazyMixtapeMaker-Windows-Stems / -macOS-Stems / -Linux-Stems** - the same app **with the stem engine and its model built in**. Nothing else to install, and it works offline. It is a much bigger download (several hundred MB).
 
-You can also split from the command line: `python -m lazy_mixtape_maker stems song.mp3 --out stems-folder`.
+Updates keep you on the kind of download you have. **Help > About** says "with stems" when the engine is built in.
 
-What to expect: the engine and its libraries take roughly 1.5 to 2.5 GB of disk, and the model (about 80 MB) is downloaded the first time. Without a graphics card, splitting takes about as long as the song plays on a small two-core computer and uses about 3 GB of memory. The stems of a song take about as much disk as the song as a WAV file. `--best` gives slightly cleaner stems and takes twice as long; `--force` splits again.
+Advanced: the normal download can also use the engine from a Python on your computer (`pip install "audio-separator[cpu]"`, then `LazyMixtapeMaker stems --python /path/to/python`, remembered from then on). You can split from the command line too: `LazyMixtapeMaker stems song.mp3 --out stems-folder` (`--best` for slightly cleaner stems at half the speed, `--force` to split again).
 
-How clean the stems are depends on the music: the engine can leave a trace of a singer in the music or the other way round.
+What to expect: without a graphics card, splitting takes about as long as the song plays on a small two-core computer and uses about 3 GB of memory. Each song is split once; its stems are kept (about as much disk as the song as a WAV file). How clean the stems are depends on the music: the engine can leave a trace of a singer in the music or the other way round.
 
-Note on licences: the engine's code is MIT, but the terms of the trained Demucs model are not clearly stated by its authors, which is one reason it is a separate download and not part of this app.
+Note on licences: the engine's code is MIT, but the terms of the trained Demucs model are not clearly stated by its authors.
+
+## Mashup Studio
+
+**Tools > Mashup Studio** (Ctrl+Shift+M) takes two songs, splits them into stems and lets you build a mashup from them - by hand, by the AI, or the AI first and then by hand. It opens with the selected song of your mix and the one after it; the **Other file…** buttons take any song from your computer.
+
+### The screen
+
+- **Songs** - song A and song B, with their tempo and key (and what they become after matching). **Split into stems** splits whichever of the two isn't split yet (once per song).
+- **Matching** -
+  - **Beat match** plays both songs at one tempo: song A's, song B's, or one you type in. Bars of the timeline then line up with bars of both songs.
+  - **Key match** shifts one song (at most 4 semitones) into a key that goes with the other; choose whose key is kept. The **Pitch** boxes override it with your own shift (*auto* = key matching decides).
+- **Let the AI do it** - pick a style and press **✨ Mash it up**:
+  - *Song B's vocals over song A's music* (or the other way round): the music song plays from its first downbeat, its intro runs alone, then the other song's singer comes in on a downbeat, in whole 4-bar phrases, and the music plays out at the end.
+  - *Trade back and forth*: both songs run side by side and every 16 bars the music swaps from one song to the other, while the other song sings over it.
+  - *Let the AI choose*: the song that sings more lends its vocals.
+  The AI replaces the clips there are; **Undo** brings them back.
+- **The timeline** - eight lanes: vocals, drums, bass and other of song A, then of song B. Each coloured block is a **clip**: a stretch of one stem placed at a time.
+
+### Editing clips
+
+- **Drag** a clip to move it (it snaps to bars or beats - see *Snap to*; hold **Shift** to place it freely). Drag it up or down to another stem of the same song.
+- **Drag its left or right edge** to trim it.
+- **Double-click** an empty spot of a lane to add an 8-bar clip of that stem there; right-click an empty spot to add a stem or the whole song.
+- **Right-click a clip** to split it at the playhead, duplicate, mute or delete it (or press **Delete**).
+- The **Clip** panel sets exactly where it starts (in bars), where in the song it plays from, its length, volume, fade-in and fade-out (in beats), and mute.
+- Click the ruler to move the playhead; **Ctrl + mouse wheel** or **＋ / －** zooms.
+
+### Playing and saving
+
+**Play** gets the mashup ready (the first time takes a moment while the songs are stretched and shifted) and plays from the playhead. **Save** keeps the mashup as a `.lmmash` file to come back to. **Export…** saves it as WAV, FLAC or MP3, and **Add to mix** saves it and adds it to your mixtape as a song.
+
