@@ -152,3 +152,14 @@ def test_about_window_and_menu(app, tmp_path, monkeypatch):
     assert not updater.enabled()
     w.state.dirty = False
     w.close()
+
+
+def test_update_keeps_the_kind_of_download(monkeypatch):
+    from lazy_mixtape_maker import _buildinfo
+    assert "-Stems" in updater.platform_asset_name("stems") and "-Stems" not in updater.platform_asset_name("")
+    monkeypatch.setattr(_buildinfo, "VARIANT", "stems", raising=False)
+    up = updater.parse_release(release(assets=[updater.platform_asset_name(""), updater.platform_asset_name("stems")]))
+    assert up.asset_name == updater.platform_asset_name("stems")
+    monkeypatch.setattr(_buildinfo, "VARIANT", "", raising=False)
+    up = updater.parse_release(release(assets=[updater.platform_asset_name(""), updater.platform_asset_name("stems")]))
+    assert up.asset_name == updater.platform_asset_name("")

@@ -102,12 +102,17 @@ def _open(url: str, timeout: float = 15.0):
     return urllib.request.urlopen(req, timeout=timeout)
 
 
-def platform_asset_name() -> str:
+def platform_asset_name(variant: str | None = None) -> str:
+    """The release file for this computer - and for the same kind of download as the one running
+    (an update never swaps the "with stems" app for the normal one or the other way round)."""
+    if variant is None:
+        variant = getattr(_buildinfo, "VARIANT", "") or ""
+    tail = "-Stems" if variant == "stems" else ""
     if sys.platform == "win32":
-        return "LazyMixtapeMaker-Windows.zip"
+        return f"LazyMixtapeMaker-Windows{tail}.zip"
     if sys.platform == "darwin":
-        return "LazyMixtapeMaker-macOS.zip"
-    return "LazyMixtapeMaker-Linux.tar.gz"
+        return f"LazyMixtapeMaker-macOS{tail}.zip"
+    return f"LazyMixtapeMaker-Linux{tail}.tar.gz"
 
 
 def parse_release(data: dict) -> Update | None:

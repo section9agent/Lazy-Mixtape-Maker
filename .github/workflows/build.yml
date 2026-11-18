@@ -13,9 +13,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-latest, name: Windows }
-          - { os: macos-latest,   name: macOS }
-          - { os: ubuntu-22.04,   name: Linux }
+          - { os: windows-latest, name: Windows, variant: "" }
+          - { os: macos-latest,   name: macOS,   variant: "" }
+          - { os: ubuntu-22.04,   name: Linux,   variant: "" }
+          # The "with stems" downloads: the stem engine (PyTorch + Demucs model) packed in.
+          - { os: windows-latest, name: Windows, variant: stems }
+          - { os: macos-latest,   name: macOS,   variant: stems }
+          - { os: ubuntu-22.04,   name: Linux,   variant: stems }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +31,7 @@ jobs:
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then TAG="${GITHUB_REF_NAME}";
           elif [ -n "$INPUT_TAG" ]; then TAG="$INPUT_TAG";
           else TAG="build-${GITHUB_RUN_NUMBER}"; fi
-          printf 'TAG = "%s"\nBUILT = "%s"\n' "$TAG" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > lazy_mixtape_maker/_buildinfo.py
+          printf 'TAG = "%s"\nBUILT = "%s"\nVARIANT = "%s"\n' "$TAG" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${{ matrix.variant }}" > lazy_mixtape_maker/_buildinfo.py
           cat lazy_mixtape_maker/_buildinfo.py
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
@@ -35,29 +39,57 @@ jobs:
       - name: Linux GL/audio libraries
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libasound2-dev libpulse0
+      - name: PyTorch (CPU-only) for the stems build
+        if: matrix.variant == 'stems'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then pip install torch;
+          else pip install torch --index-url https://download.pytorch.org/whl/cpu; fi
       - run: pip install -r requirements-dev.txt
+      - name: Stem engine and its model
+        if: matrix.variant == 'stems'
+        shell: bash
+        run: |
+          pip install -r requirements-stems.txt
+          python -c "from audio_separator.separator import Separator as S; S(model_file_dir='packaging/stems-models').load_model('htdemucs.yaml')"
+          ls -la packaging/stems-models
       # The runners have no GPU. Tests that need OpenGL skip themselves when it isn't there.
+      # (The stems build runs the same code; it is checked by the smoke test after packaging instead.)
       - run: python -m pytest -x -q
+        if: matrix.variant == ''
         env:
           QT_QPA_PLATFORM: offscreen
           LMM_AUDIO_BACKEND: "null"
       - run: pyinstaller packaging/lmm.spec --noconfirm
+        env:
+          LMM_VARIANT: ${{ matrix.variant }}
+      - name: Smoke test - split a song with the packaged engine
+        if: matrix.variant == 'stems'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then APP="dist/Lazy Mixtape Maker.app/Contents/MacOS/LazyMixtapeMaker";
+          elif [ "$RUNNER_OS" = "Windows" ]; then APP="dist/LazyMixtapeMaker/LazyMixtapeMaker.exe";
+          else APP="dist/LazyMixtapeMaker/LazyMixtapeMaker"; fi
+          python packaging/smoke_stems.py "$APP"
       - name: Zip
         shell: bash
         run: |
+          TAIL=""; if [ "${{ matrix.variant }}" = "stems" ]; then TAIL="-Stems"; fi
           cd dist
           mkdir -p ../artifacts-to-upload
-          if [ "$RUNNER_OS" = "Windows" ]; then 7z a ../artifacts-to-upload/LazyMixtapeMaker-Windows.zip LazyMixtapeMaker;
-          elif [ "$RUNNER_OS" = "macOS" ]; then ditto -c -k --keepParent "Lazy Mixtape Maker.app" ../artifacts-to-upload/LazyMixtapeMaker-macOS.zip;
-          else tar czf ../artifacts-to-upload/LazyMixtapeMaker-Linux.tar.gz LazyMixtapeMaker; fi
+          if [ "$RUNNER_OS" = "Windows" ]; then 7z a ../artifacts-to-upload/LazyMixtapeMaker-Windows$TAIL.zip LazyMixtapeMaker;
+          elif [ "$RUNNER_OS" = "macOS" ]; then ditto -c -k --keepParent "Lazy Mixtape Maker.app" ../artifacts-to-upload/LazyMixtapeMaker-macOS$TAIL.zip;
+          else tar czf ../artifacts-to-upload/LazyMixtapeMaker-Linux$TAIL.tar.gz LazyMixtapeMaker; fi
+          ls -la ../artifacts-to-upload
       - uses: actions/upload-artifact@v4
         with:
-          name: LazyMixtapeMaker-${{ matrix.name }}
+          name: LazyMixtapeMaker-${{ matrix.name }}${{ matrix.variant == 'stems' && '-Stems' || '' }}
           path: "artifacts-to-upload/*"
 
   release:
     # Collects the three builds into a DRAFT GitHub release (nothing is public until you click Publish).
     needs: build
+    if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -82,4 +114,4 @@ jobs:
           fi
           gh release create "$TAG" release-files/* --repo "$REPO" --draft \
             --target "${GITHUB_SHA}" --title "Lazy Mixtape Maker ${TAG}" \
-            --notes "Windows (.zip), macOS (.zip) and Linux (.tar.gz) builds. Unzip and run LazyMixtapeMaker. Everything runs offline."
+            --notes "Windows (.zip), macOS (.zip) and Linux (.tar.gz) builds. Unzip and run LazyMixtapeMaker. Everything runs offline. The -Stems downloads also contain the stem engine (stem transitions and the Mashup Studio); they are much bigger."

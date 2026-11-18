@@ -29,6 +29,10 @@ CREDITS = [
     ("FFmpeg and imageio-ffmpeg", "making the video and MP3 files", "FFmpeg: LGPL / GPL, imageio-ffmpeg: BSD-2-Clause",
      "https://ffmpeg.org"),
     ("pyloudnorm", "loudness measuring", "MIT", "https://github.com/csteinmetz1/pyloudnorm"),
+    ("PyTorch", "runs the stem splitter (in the download with stems)", "BSD-3-Clause", "https://pytorch.org"),
+    ("audio-separator", "the stem splitter (in the download with stems)", "MIT", "https://github.com/nomadkaraoke/python-audio-separator"),
+    ("Demucs (Meta)", "the model that splits songs into drums, bass, vocals and other", "MIT (code)",
+     "https://github.com/facebookresearch/demucs"),
     ("PyInstaller", "packaging the app so it runs without Python", "GPL-2.0 with exception for built apps", "https://pyinstaller.org"),
     ("Shadertoy", "the visuals library idea and the shaders themselves - every shader belongs to its author, "
                   "who is named on the shader's Shadertoy page", "per-shader (see each shader's page)", "https://www.shadertoy.com"),
@@ -56,7 +60,8 @@ class AboutDialog(QDialog):
         head.addWidget(pic)
         tag = _buildinfo.TAG
         txt = QLabel(f"<h2 style='margin:0'>Lazy Mixtape Maker</h2>Version {__version__}"
-                     + (f" &nbsp;·&nbsp; build {tag}" if tag != "dev" else "") +
+                     + (f" &nbsp;·&nbsp; build {tag}" if tag != "dev" else "")
+                     + (" &nbsp;·&nbsp; with stems" if getattr(_buildinfo, "VARIANT", "") == "stems" else "") +
                      f"<br><b>{AUTHORS}</b><br>An offline auto-DJ: your music stays on your computer."
                      "<br><span style='color:#8b93a1'>Free software under the GNU GPL v3.</span>")
         txt.setTextFormat(Qt.TextFormat.RichText)

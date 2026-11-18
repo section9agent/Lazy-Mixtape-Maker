@@ -4,6 +4,9 @@ import sys
 def main():
     """No arguments, a .lmm or .lmv file, or --gui opens the app; anything else is the command line."""
     argv = sys.argv
+    if len(argv) > 1 and argv[1] == "--stems-worker":       # the packaged app splitting stems for itself
+        from . import stems_worker
+        sys.exit(stems_worker.main(argv[1:]))
     if len(argv) == 1 or argv[1].lower().endswith((".lmm", ".lmv")) or argv[1] == "--gui":
         from .gui import main as gui_main
 

@@ -3,7 +3,10 @@
 
     python stems_worker.py <song> <output folder> <models folder> <model> <shifts>
 
-Prints one JSON object per line: {"event": "start"|"progress"|"done"|"error", ...}."""
+The packaged "with stems" app runs it as itself:  LazyMixtapeMaker --stems-worker <song> ...
+
+Writes one JSON object per line - {"event": "start"|"progress"|"done"|"error", ...} - to the file named by
+the LMM_STEMS_STATUS environment variable (or to standard output when that isn't set)."""
 import json
 import logging
 import os
@@ -12,11 +15,23 @@ import time
 
 
 def say(**kw):
-    print(json.dumps(kw), flush=True)
+    line = json.dumps(kw)
+    status = os.environ.get("LMM_STEMS_STATUS")
+    if status:
+        with open(status, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    elif sys.stdout is not None:
+        print(line, flush=True)
 
 
 def main(argv):
+    if len(argv) < 6:
+        say(event="error", message="usage: stems_worker <song> <output folder> <models folder> <model> <shifts>")
+        return 2
     song, out, models, model, shifts = argv[1], argv[2], argv[3], argv[4], int(argv[5])
+    for name in ("stdout", "stderr"):                        # a windowed program may have neither
+        if getattr(sys, name) is None:
+            setattr(sys, name, open(os.devnull, "w"))
     try:
         from audio_separator.separator import Separator
     except Exception as e:  # noqa: BLE001

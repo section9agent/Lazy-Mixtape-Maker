@@ -1,9 +1,10 @@
-"""Optional add-on: split a song into stems (drums, bass, vocals, other).
+"""Split a song into stems (drums, bass, vocals, other).
 
 The splitting itself is done by the `audio-separator` package (which runs Meta's Demucs model with PyTorch).
-That is far too big to ship inside the app, so it is optional: this module looks for a Python that has it
-installed, runs stems_worker.py with it as a separate process, and keeps the result in a per-song cache so a
-song is only ever split once. Nothing here is imported by the rest of the app unless stems are asked for."""
+The "with stems" download of the app has it built in (with the model, so it works offline); the normal
+download doesn't, but can use a Python on the computer that has it installed. Either way it runs as a
+separate process (the built-in engine is the app itself, started with --stems-worker), and the results are
+kept in a per-song cache so a song is only ever split once."""
 from __future__ import annotations
 
 import importlib.util
@@ -21,7 +22,9 @@ from .visuals import data_dir
 STEMS = ("drums", "bass", "vocals", "other")
 MODEL = "htdemucs.yaml"            # Demucs v4, four stems; ~80 MB, downloaded the first time
 SHIFTS = 1                         # 1 = fastest; 2 is slightly cleaner and takes twice as long
-INSTALL_HINT = ("Stem splitting is an optional add-on. Install it into a Python on this computer with\n"
+INSTALL_HINT = ("This copy of the app doesn't include the stem engine. The easiest way to get it is the\n"
+                "\"with stems\" download (LazyMixtapeMaker-...-Stems) from the releases page.\n\n"
+                "Or install it into a Python on this computer with\n"
                 "    pip install \"audio-separator[cpu]\"\n"
                 "then tell the app which Python that is:\n"
                 "    python -m lazy_mixtape_maker stems --python /path/to/python\n"
@@ -37,17 +40,41 @@ class StemsError(RuntimeError):
 
 
 # ------------------------------------------------------------------ the engine
+BUILT_IN = "built-in"
+
+
+def built_in() -> bool:
+    """Is the stem engine packaged inside this copy of the app (the "with stems" download)?"""
+    if not getattr(sys, "frozen", False):
+        return False
+    try:
+        return importlib.util.find_spec("audio_separator") is not None
+    except (ImportError, ValueError):
+        return False
+
+
 def engine_python() -> str | None:
-    """The Python that has the stem engine: LMM_STEMS_PYTHON, the saved choice, or this one."""
+    """Where the stem engine is: LMM_STEMS_PYTHON, the saved choice, built into the app ("built-in"),
+    or this Python when it has the package."""
     for cand in (os.environ.get("LMM_STEMS_PYTHON"), prefs.get("stems_python")):
         if cand and Path(cand).exists():
             return str(cand)
+    if built_in():
+        return BUILT_IN
     if not getattr(sys, "frozen", False) and importlib.util.find_spec("audio_separator") is not None:
         return sys.executable
     return None
 
 
+def worker_command(py: str) -> list[str]:
+    """The start of the command that runs the worker with the engine `py`."""
+    if py == BUILT_IN:
+        return [sys.executable, "--stems-worker"]
+    return [py, str(Path(__file__).with_name("stems_worker.py"))]
+
+
 def set_engine_python(path: str) -> None:
+    """Use the stem engine installed in the Python at `path` (remembered)."""
     if not Path(path).exists():
         raise StemsError(f"{path} doesn't exist.")
     r = subprocess.run([path, "-c", "import audio_separator"], capture_output=True, text=True)
@@ -65,8 +92,25 @@ def cache_root() -> Path:
     return data_dir() / "stems"
 
 
+def bundled_models() -> Path | None:
+    """The model files packaged with the "with stems" download, if any."""
+    base = getattr(sys, "_MEIPASS", None)
+    p = Path(base) / "stems-models" if base else None
+    return p if p and (p / MODEL).exists() else None
+
+
 def models_dir() -> Path:
-    return data_dir() / "stems-models"
+    """Where the engine keeps its model. The packaged model is copied there the first time (the engine wants
+    a folder it can write to), so splitting never needs the internet."""
+    d = data_dir() / "stems-models"
+    src = bundled_models()
+    if src is not None and not (d / MODEL).exists():
+        d.mkdir(parents=True, exist_ok=True)
+        for f in src.iterdir():
+            if f.is_file() and not (d / f.name).exists():
+                shutil.copyfile(f, d / (f.name + ".part"))
+                os.replace(d / (f.name + ".part"), d / f.name)
+    return d
 
 
 def song_dir(song_id: str) -> Path:
@@ -93,32 +137,50 @@ def cache_size() -> int:
 
 
 # ------------------------------------------------------------------- splitting
-def _run_worker(cmd, progress, cancel):
-    """Run the worker, passing its progress on. Returns the final "done" message."""
+def _run_worker(cmd, progress, cancel, status: Path | None = None):
+    """Run the worker, passing its progress on. Returns the final "done" message.
+
+    The worker writes its messages (one JSON object per line) to a status file rather than to a pipe: the
+    packaged app is a windowed program, and on Windows such a program may have no usable standard output."""
+    import time
+
+    status = Path(status or Path(cmd[-4]) / "status.jsonl")      # cmd[-4] is the output folder
+    status.parent.mkdir(parents=True, exist_ok=True)
+    status.write_text("", encoding="utf-8")
     kw = {"creationflags": 0x08000000} if sys.platform == "win32" else {}           # no console window
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8", **kw)
-    done = None
+    env = dict(os.environ, LMM_STEMS_STATUS=str(status))
+    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, **kw)
+    done, pos, buf = None, 0, ""
     try:
-        for line in p.stdout:
+        while True:
+            finished = p.poll() is not None
             if cancel and cancel():
                 p.kill()
                 raise StemsError("Cancelled")
-            try:
-                msg = json.loads(line)
-            except ValueError:
-                continue
-            if msg.get("event") == "progress" and progress:
-                progress(float(msg.get("fraction", 0.0)))
-            elif msg.get("event") == "error":
-                raise StemsError(msg.get("message", "The stem engine failed."))
-            elif msg.get("event") == "done":
-                done = msg
-        p.wait()
+            with open(status, "r", encoding="utf-8") as f:
+                f.seek(pos)
+                buf += f.read()
+                pos = f.tell()
+            *lines, buf = buf.split("\n")
+            for line in lines:
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if msg.get("event") == "progress" and progress:
+                    progress(float(msg.get("fraction", 0.0)))
+                elif msg.get("event") == "error":
+                    raise StemsError(msg.get("message", "The stem engine failed."))
+                elif msg.get("event") == "done":
+                    done = msg
+            if finished:
+                break
+            time.sleep(0.2)
     finally:
         if p.poll() is None:
             p.kill()
     if done is None:
-        raise StemsError("The stem engine stopped without finishing.")
+        raise StemsError(f"The stem engine stopped without finishing (exit code {p.returncode}).")
     return done
 
 
@@ -138,9 +200,9 @@ def split(path, song_id: str | None = None, progress=None, cancel=None, force: b
     work = final.with_name(final.name + ".part")              # an interrupted split never looks finished
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
-    worker = Path(__file__).with_name("stems_worker.py")
     try:
-        done = runner([py, str(worker), str(path), str(work), str(models_dir()), MODEL, str(shifts)], progress, cancel)
+        done = runner(worker_command(py) + [str(path), str(work), str(models_dir()), MODEL, str(shifts)], progress, cancel)
+        (work / "status.jsonl").unlink(missing_ok=True)
         got = sorted(s for s in done.get("stems", {}) if (work / f"{s}.flac").exists())
         if not got:
             raise StemsError("The stem engine produced no stems.")

@@ -13,15 +13,34 @@ for pkg in ("librosa", "imageio_ffmpeg", "soundfile", "miniaudio", "moderngl", "
     except Exception:
         pass
 datas += [(str(ROOT / "lazy_mixtape_maker" / "assets"), "assets")]
-# The stem splitter runs this file with a separate Python (the optional add-on), so it must exist as a real file.
+# A separate Python with the stem engine (normal download) runs this file, so it must exist as a real file.
 datas += [(str(ROOT / "lazy_mixtape_maker" / "stems_worker.py"), "lazy_mixtape_maker")]
 
+# LMM_VARIANT=stems builds the "with stems" download: the stem engine (PyTorch + audio-separator) and its model
+# are packed in, and the app runs the engine as itself (LazyMixtapeMaker --stems-worker ...).
+STEMS = os.environ.get("LMM_VARIANT", "") == "stems"
+if STEMS:
+    for pkg in ("audio_separator", "beartype", "diffq", "julius", "einops", "ml_collections", "rotary_embedding_torch",
+                "onnx2torch", "samplerate", "resampy", "pydub", "yaml", "onnxruntime", "onnx"):
+        try:
+            d, b, h = collect_all(pkg)
+            datas += d; binaries += b; hidden += h
+        except Exception as e:
+            print("collect_all failed for", pkg, e)
+    models = ROOT / "packaging" / "stems-models"
+    if not (models / "htdemucs.yaml").exists():
+        raise SystemExit("packaging/stems-models is missing - download the model first (see build.yml)")
+    datas += [(str(models), "stems-models")]
+
 # Only the Qt parts the app uses keep the download small.
-excludes = ["tkinter", "matplotlib", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.Qt3DCore",
+excludes = ([] if STEMS else ["torch", "audio_separator", "onnxruntime", "onnx"]) + ["tkinter", "matplotlib", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.Qt3DCore",
             "PySide6.QtQuick", "PySide6.QtQml", "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtPdf"]
 
 a = Analysis([str(ROOT / "packaging" / "entry.py")], pathex=[str(ROOT)], binaries=binaries, datas=datas,
-             hiddenimports=hidden + ["scipy.special._cdflib", "lazy_mixtape_maker.gui.studio_window", "lazy_mixtape_maker.studio"], excludes=excludes)
+             hiddenimports=hidden + ["scipy.special._cdflib", "lazy_mixtape_maker.gui.studio_window", "lazy_mixtape_maker.studio",
+                                     "lazy_mixtape_maker.stems_worker", "lazy_mixtape_maker.gui.mashup_studio",
+                                     "lazy_mixtape_maker.mashup"],
+             excludes=excludes)
 if sys.platform.startswith("linux"):
     # Use the computer's own graphics drivers and C++ runtime. Bundled (older) copies of these clash with the
     # newer Mesa on rolling distributions such as Arch / SteamOS, and then OpenGL is "not available".
