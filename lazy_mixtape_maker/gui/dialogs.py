@@ -31,7 +31,7 @@ class GenerateDialog(QDialog):
         self.style = QComboBox()
         for k, v in (("auto", "Let the AI choose"), ("eq_swap", "Bass-swap blends"), ("crossfade", "Crossfades"),
                      ("cut", "Hard cuts with effects"),
-                     ("stem_blend", "Stem blends (songs must be split into stems)")):
+                     ("stem_blend", "Stem blends, varied (songs must be split into stems)")):
             self.style.addItem(v, k)
         self.style.setCurrentIndex(max(0, self.style.findData(settings.transition_style)))
         self.tempo = QComboBox()

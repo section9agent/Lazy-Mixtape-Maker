@@ -118,6 +118,30 @@ def test_new_singer_over_old_music(tmp):
     assert at(0.25, 0.65, "a", "bass") > 0.9 and at(0.25, 0.65, "b", "bass") < QUIET_BASS
 
 
+@pytest.mark.parametrize("kind, checks", [
+    # (u0, u1, song, stem, "on"/"off") - what must be heard where in the blend
+    ("stem_drums_first", [(0.05, 0.4, "a", "bass", "on"), (0.05, 0.4, "b", "bass", "off"), (0.05, 0.3, "a", "vocals", "on"),
+                          (0.72, 0.95, "b", "bass", "on"), (0.88, 0.99, "a", "bass", "off")]),
+    ("stem_drums_last", [(0.6, 0.75, "a", "bass", "on"), (0.6, 0.75, "b", "bass", "off"), (0.65, 0.8, "b", "vocals", "on"),
+                         (0.4, 0.8, "a", "vocals", "off")]),
+    ("stem_instrumental", [(0.3, 0.7, "a", "vocals", "off"), (0.3, 0.7, "b", "vocals", "off"), (0.25, 0.4, "a", "bass", "on"),
+                           (0.6, 0.75, "b", "bass", "on")]),
+    ("stem_breakdown", [(0.2, 0.65, "a", "bass", "off"), (0.2, 0.65, "a", "vocals", "on"), (0.2, 0.65, "b", "bass", "off"),
+                        (0.2, 0.65, "b", "vocals", "off"), (0.82, 0.97, "b", "bass", "on"), (0.82, 0.97, "a", "vocals", "off")]),
+    ("stem_acapella_out", [(0.3, 0.45, "a", "vocals", "on"), (0.3, 0.45, "a", "bass", "off"), (0.3, 0.45, "b", "bass", "off"),
+                           (0.6, 0.75, "b", "bass", "on"), (0.85, 0.99, "a", "vocals", "off"), (0.9, 0.99, "b", "vocals", "on")]),
+])
+def test_more_stem_transitions(tmp, kind, checks):
+    at, notes, _ = mixdown(tmp, kind)
+    assert not notes
+    for u0, u1, song, stem, want in checks:
+        v = at(u0, u1, song, stem)
+        if want == "on":
+            assert v > 0.85, (kind, u0, u1, song, stem, v)
+        else:
+            assert v < (QUIET_BASS if stem == "bass" else 0.08), (kind, u0, u1, song, stem, v)
+
+
 def test_stems_follow_a_stretched_song(tmp):
     """Different tempos: the songs are time-stretched, and their stems must stay in step with them to cancel.
     (Stretching blurs these steady test tones, so each reading is compared with the same mix as a crossfade.)"""
@@ -181,9 +205,9 @@ def test_auto_style_and_session_roundtrip(tmp):
     long = [("intro", 8), ("verse", 8), ("chorus", 8), ("outro", 8)]
     a, b = make(tmp, "a", 120.0, shape=long), make(tmp, "b", 120.0, shape=long)
     s, _ = new_session([a, b], MixSettings(order="given", transition_style="stem_blend"))
-    assert s.plan.transitions[0].type == "stem_blend"
+    assert s.plan.transitions[0].type in dict(planmod.AUTO_STEM_TYPES)
     again = planmod.MixPlan.from_dict(json.loads(json.dumps(s.plan.to_dict())))
-    assert again.transitions[0].type == "stem_blend"
+    assert again.transitions[0].type == s.plan.transitions[0].type
     with pytest.raises(ValueError):
         planmod.set_transition(s.plan, s.library, 0, "stem_nonsense")
 

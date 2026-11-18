@@ -30,6 +30,7 @@ STYLES = {
     "trade": "Trade back and forth",
 }
 FORMAT = "lazy-mixtape-maker/mashup"
+VOCAL_LEVELS = {"off": "Off", "gentle": "Gentle", "medium": "Medium", "strong": "Strong"}
 
 
 class MashupError(RuntimeError):
@@ -71,12 +72,15 @@ class Mashup:
     key_match: bool = True
     key_from: str = "a"          # the song whose key is kept (the other one moves)
     name: str = "Untitled mashup"
+    vocal_level: str = "off"     # off | gentle | medium | strong: LUFS Lab's voice leveler on the vocal stems
+    vocal_lufs: float = -18.0    # loudness the leveled vocals are set to
 
     # ---------------------------------------------------------------- saving
     def to_dict(self) -> dict:
         return {"format": FORMAT, "version": 1, "name": self.name, "beat_match": self.beat_match,
                 "tempo_from": self.tempo_from, "custom_bpm": self.custom_bpm, "key_match": self.key_match,
-                "key_from": self.key_from, "songs": [asdict(s) for s in self.songs], "clips": [asdict(c) for c in self.clips]}
+                "key_from": self.key_from, "vocal_level": self.vocal_level, "vocal_lufs": self.vocal_lufs,
+                "songs": [asdict(s) for s in self.songs], "clips": [asdict(c) for c in self.clips]}
 
     @classmethod
     def from_dict(cls, d: dict) -> "Mashup":
@@ -91,7 +95,9 @@ class Mashup:
                    tempo_from=d.get("tempo_from", "a") if d.get("tempo_from") in ("a", "b", "custom") else "a",
                    custom_bpm=float(d.get("custom_bpm", 120.0)), key_match=bool(d.get("key_match", True)),
                    key_from=d.get("key_from", "a") if d.get("key_from") in ("a", "b") else "a",
-                   name=str(d.get("name") or "Untitled mashup"))
+                   name=str(d.get("name") or "Untitled mashup"),
+                   vocal_level=d.get("vocal_level", "off") if d.get("vocal_level") in VOCAL_LEVELS else "off",
+                   vocal_lufs=float(min(-6.0, max(-36.0, d.get("vocal_lufs", -18.0)))))
 
     def save(self, file) -> None:
         Path(file).write_text(json.dumps(self.to_dict(), indent=1), encoding="utf-8")
@@ -374,6 +380,43 @@ def _trade(m, lib, ans, spans):
     m.clips[:] = [c for c in m.clips if c.src_end - c.src_start > 0.05]
 
 
+# ------------------------------------------------------------- waveforms
+WAVE_STEP = 0.05                 # seconds per value of a stem's drawn envelope
+
+
+def stem_waves(song_id: str) -> dict:
+    """Each stem's loudness envelope for drawing - one value 0..1 per WAVE_STEP seconds of the song, scaled
+    together so a quiet stem looks quiet next to a loud one. Kept beside the stems once worked out."""
+    import soundfile as sf
+
+    from . import stems
+    files = stems.cached(song_id)
+    if not files:
+        return {}
+    cache = next(iter(files.values())).parent / "waves.npz"
+    try:
+        z = np.load(cache)
+        if set(z.files) >= set(files):
+            return {k: z[k] for k in files}
+    except (OSError, ValueError, EOFError):
+        pass
+    out = {}
+    for name, f in files.items():
+        y, sr = sf.read(str(f), dtype="float32", always_2d=True)
+        hop = max(1, int(sr * WAVE_STEP))
+        a = np.abs(y).max(axis=1)
+        m = len(a) // hop * hop
+        pk = a[:m].reshape(-1, hop).max(axis=1) if m else np.zeros(1, np.float32)
+        out[name] = pk
+    top = max([float(v.max()) for v in out.values()] + [1e-9])
+    out = {k: np.sqrt(v / top).astype(np.float32) for k, v in out.items()}
+    try:
+        np.savez_compressed(cache, **out)
+    except OSError:
+        pass
+    return out
+
+
 # --------------------------------------------------------------- rendering
 class Renderer:
     """Renders mashups, keeping each song's stems ready at the current speed and pitch so that moving clips
@@ -390,14 +433,23 @@ class Renderer:
 
         sid = m.songs[i].song_id
         r, p = rate(m, lib, i), pitch(m, lib, i)
-        key = (sid, round(r, 6), p)
+        lev = (m.vocal_level, round(m.vocal_lufs, 2)) if m.vocal_level != "off" else ("off",)
+        key = (sid, round(r, 6), p, lev)
         if key in self._ready:
             return self._ready[key]
+        same = [k for k in self._ready if k[:3] == key[:3]]
+        if same:                                     # only the vocal leveling changed: redo just the vocals
+            st = dict(self._ready.pop(same[0]))
+            st["vocals"] = self._level(m, st.get("_raw_vocals", st.get("vocals")))
+            if "_raw_vocals" not in st and "vocals" in st:
+                st["_raw_vocals"] = st["vocals"]
+            self._ready[key] = st
+            return st
         files = stems.cached(sid)
         if not files:
             raise MashupError(f"{lib[sid].title or 'This song'} hasn't been split into stems yet.")
         an = lib[sid]
-        for k in [k for k in self._ready if k[0] == sid]:           # keep one version per song in memory
+        for k in [k for k in self._ready if k[0] == sid]:           # keep one version per song in memory (plus raw vocals)
             del self._ready[k]
         if progress:
             progress(f"Getting {an.title or 'the song'} ready…", 0.0)
@@ -406,8 +458,19 @@ class Renderer:
             src_start, src_end, pitch = 0.0, float(an.duration), p
         _, st = render_track_audio(paths[sid], T, RateCurve([0.0, an.duration], [r, r]), an,
                                    stems={s: files[s] for s in STEMS if s in files}, lag=stems.lag(sid, paths[sid]))
+        if "vocals" in st:
+            st["_raw_vocals"] = st["vocals"]
+            st["vocals"] = self._level(m, st["vocals"])
         self._ready[key] = st
         return st
+
+    @staticmethod
+    def _level(m: Mashup, vocals):
+        """LUFS Lab's voice leveler on a vocal stem, when it's switched on."""
+        if vocals is None or m.vocal_level == "off":
+            return vocals
+        from .loudness import level_voice
+        return level_voice(vocals, SR, m.vocal_level, m.vocal_lufs)
 
     def render(self, m: Mashup, lib: dict, paths: dict, progress=None, start: float = 0.0, end: float | None = None) -> np.ndarray:
         """The mashup (or the part of it from `start` to `end`) as (2, n) audio."""
@@ -423,7 +486,7 @@ class Renderer:
             ready[i] = self.prepare(m, lib, paths, i, progress=lambda msg, f, k=k: say(msg, (k + f) / max(1, len(used)) * 0.9))
         say("Mixing…", 0.92)
         for c in live:
-            audio = ready[c.song].get(c.stem)
+            audio = ready[c.song].get(c.stem)       # (never the "_raw_vocals" kept for re-leveling)
             if audio is None:
                 continue
             r = rate(m, lib, c.song)

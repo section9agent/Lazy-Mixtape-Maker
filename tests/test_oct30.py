@@ -295,3 +295,31 @@ def test_shader_name_can_be_edited_with_its_code(app, tmp_path):
     assert lib.get(sh.id).name == "Better name"                    # an empty name is ignored
     built_in = EditShaderDialog(lib, lib.all()[0])
     assert built_in.name.isReadOnly()
+
+
+def test_new_mix_from_all_songs(app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    from lazy_mixtape_maker.plan import order_songs, MixSettings
+    w, _ = _mix_window(tmp_path)
+    st = w.state
+    tb = [a for a in w.findChildren(type(w.a_gen)) if a in (w.a_newmix, w.a_mashup)]
+    assert w.a_newmix.shortcut().toString() == "Ctrl+Shift+N" and len(tb) == 2
+    bars = [t for t in w.findChildren(__import__("PySide6.QtWidgets", fromlist=["QToolBar"]).QToolBar)]
+    acts = [a for b in bars for a in b.actions()]
+    assert w.a_mashup in acts and w.a_newmix in acts                # both are toolbar buttons
+    ids = [t.song_id for t in st.plan.tracks]
+    st.edit(lambda p, lib: p.tracks.pop(1))                         # take a song out of the mix
+    assert len(st.plan.tracks) == len(ids) - 1
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    w.new_mix()
+    assert sorted(t.song_id for t in st.plan.tracks) == sorted(ids)  # it's back
+    assert st.plan.settings.seed != 0
+    st.undo()
+    assert len(st.plan.tracks) == len(ids) - 1
+    # different seeds give different orders (still each a smooth path)
+    songs = [st.lib[i] for i in ids]
+    orders = {tuple(a.id for a in order_songs(songs, MixSettings(seed=k))) for k in range(1, 30)}
+    assert len(orders) >= 2
+    assert tuple(a.id for a in order_songs(songs, MixSettings(seed=5))) == tuple(a.id for a in order_songs(songs, MixSettings(seed=5)))
+    st.dirty = False
+    w.close()

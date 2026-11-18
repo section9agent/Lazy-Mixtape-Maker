@@ -125,5 +125,68 @@ def main(argv):
     return 0
 
 
+def deep_main(argv):
+    """Deep analysis with All-In-One (allin1_infer) on a song's stems:
+
+        stems_worker deep <stems folder> <result .json> <models folder>
+
+    Finds the tempo, beats, downbeats and the song's parts (intro, verse, chorus, ...)."""
+    if len(argv) < 4:
+        say(event="error", message="usage: stems_worker deep <stems folder> <result .json> <models folder>")
+        return 2
+    stems_dir, out_json, models = argv[1], argv[2], argv[3]
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name) is None:
+            setattr(sys, name, open(os.devnull, "w"))
+    os.makedirs(models, exist_ok=True)
+    os.environ["HF_HUB_CACHE"] = models                       # where the model files are kept
+    if os.path.isdir(os.path.join(models, "models--taejunkim--allinone")):
+        os.environ["HF_HUB_OFFLINE"] = "1"                    # they're here: never go online
+    os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+    os.environ.setdefault("MPLBACKEND", "Agg")                 # its (unused) plotting must not look for a screen
+    t0 = time.time()
+    say(event="start")
+    try:
+        import types
+        try:
+            import torchaudio  # noqa: F401
+        except Exception:  # noqa: BLE001 - only needed for MP3 input and Demucs, which aren't used here
+            sys.modules["torchaudio"] = types.ModuleType("torchaudio")
+        from allin1_infer import analyze
+        from allin1_infer.stems_input import StemsInput
+    except Exception as e:  # noqa: BLE001
+        say(event="error", message=f"The deep analysis engine isn't installed in this Python ({e}).")
+        return 2
+    import tempfile
+    import soundfile as sf
+    say(event="progress", fraction=0.05)
+    try:
+        with tempfile.TemporaryDirectory(prefix="lmm_deep_") as tmp:
+            files = {}
+            for s in ("bass", "drums", "other", "vocals"):
+                y, sr = sf.read(os.path.join(stems_dir, s + ".flac"), dtype="float32")
+                files[s] = os.path.join(tmp, s + ".wav")
+                sf.write(files[s], y, sr)
+            say(event="progress", fraction=0.2)
+            r = analyze(stems_input=StemsInput(**files, identifier="song"), model="harmonix-all", device="cpu",
+                        demix_dir=os.path.join(tmp, "demix"), spec_dir=os.path.join(tmp, "spec"), multiprocess=False)
+            r = r[0] if isinstance(r, list) else r
+    except Exception as e:  # noqa: BLE001
+        say(event="error", message=str(e)[:500])
+        return 1
+    res = {"bpm": float(r.bpm), "beats": [float(x) for x in r.beats], "downbeats": [float(x) for x in r.downbeats],
+           "beat_positions": [int(x) for x in r.beat_positions],
+           "segments": [{"start": float(s.start), "end": float(s.end), "label": str(s.label)} for s in r.segments],
+           "model": "harmonix-all", "seconds": round(time.time() - t0, 1)}
+    tmp_out = out_json + ".part"
+    with open(tmp_out, "w", encoding="utf-8") as f:
+        json.dump(res, f)
+    os.replace(tmp_out, out_json)
+    say(event="done", stems={}, seconds=res["seconds"])
+    return 0
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "deep":
+        sys.exit(deep_main(sys.argv[1:]))
     sys.exit(main(sys.argv))

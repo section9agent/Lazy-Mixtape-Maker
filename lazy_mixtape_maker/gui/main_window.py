@@ -205,9 +205,15 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         self.a_add_folder = act("Add folder", self.add_folder_dialog, "Ctrl+Shift+I", "Add every song in a folder", "▤")
         self.a_locate = act("Find missing songs…", self.locate_songs)
         self.a_gen = act("Generate mix", self.generate, "Ctrl+G", "Let the AI build (or rebuild) the mix", "✦")
+        self.a_newmix = act("New mix", self.new_mix, "Ctrl+Shift+N",
+                            "Let the AI make a whole new mix from every song you've added: a different order, "
+                            "different transitions and effects each time", "⟳")
         self.a_settings = act("Project settings…", self.project_settings, "Ctrl+Shift+G",
                               "The same options as when you add a folder: style, blends, tempo, keys, effects…")
         self.a_refresh = act("Refresh AI suggestions", self.refresh_ai, None, "Re-pick everything you haven't changed by hand")
+        self.a_deep = act("Deep analysis (All-In-One)…", self.open_deep, None,
+                          "Compare the app's analysis of each song with All-In-One's (tempo, downbeats, song parts) "
+                          "and choose which the mix uses")
         self.a_stems = act("Split songs into stems…", lambda: self.split_stems(), None,
                            "Optional add-on: split every song in the mix into drums, bass, vocals and other, "
                            "for the stem transitions")
@@ -225,7 +231,7 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
                               "Watch the visuals in real time, in sync with the timeline", "◐")
         self.a_studio = act("Visualization Studio", self.open_studio, "Ctrl+Shift+V", "Make a video for a mixtape you already have", "◉")
         self.a_mashup = act("Mashup Studio", self.open_mashup_studio, "Ctrl+Shift+M",
-                            "Split two songs into stems and mash them up - by hand or by the AI")
+                            "Split two songs into stems and mash them up - by hand or by the AI", "♫")
         self.a_overlay = act("Show cover art, artist and title on videos", self.toggle_overlay)
         self.a_overlay.setCheckable(True)
         self.a_overlay.setChecked(prefs.overlay_enabled())
@@ -246,7 +252,7 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         for a in (self.a_undo, self.a_redo, None, self.a_info, self.a_del):
             e.addAction(a) if a else e.addSeparator()
         mx = m.addMenu("&Mix")
-        for a in (self.a_gen, self.a_settings, self.a_refresh, self.a_stems, None, self.a_play, self.a_stop):
+        for a in (self.a_gen, self.a_newmix, self.a_settings, self.a_refresh, self.a_stems, self.a_deep, None, self.a_play, self.a_stop):
             mx.addAction(a) if a else mx.addSeparator()
         tm = m.addMenu("&Tools")
         tm.addAction(self.a_vpreview)
@@ -262,8 +268,8 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         tb.setIconSize(QSize(34, 34))
         self.addToolBar(tb)
-        for a in (self.a_add, self.a_add_folder, self.a_add_playlist, None, self.a_gen, None, self.a_play, self.a_stop, None,
-                  self.a_audio, self.a_video, self.a_both, None, self.a_vpreview, self.a_studio):
+        for a in (self.a_add, self.a_add_folder, self.a_add_playlist, None, self.a_gen, self.a_newmix, None, self.a_play, self.a_stop, None,
+                  self.a_audio, self.a_video, self.a_both, None, self.a_vpreview, self.a_studio, self.a_mashup):
             tb.addAction(a) if a else tb.addSeparator()
 
     # ------------------------------------------------------------------- playback
@@ -549,6 +555,37 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         if dlg.exec():
             self.state.generate(dlg.result_settings())
             self.state.select(0)
+
+    def open_deep(self):
+        from .deep_dialog import DeepDialog
+        if not self.state.plan.tracks:
+            QMessageBox.information(self, APP, "Add some songs first (Add songs… or drag them onto the window).")
+            return
+        dlg = DeepDialog(self)
+        dlg.exec()
+        try:
+            self.state.changed.disconnect(dlg.refresh)
+        except (RuntimeError, TypeError):
+            pass
+
+    def new_mix(self):
+        st = self.state
+        ids = st.all_song_ids()
+        if len(ids) < 2:
+            QMessageBox.information(self, APP, "Add some songs first (Add songs… or drag them onto the window).")
+            return
+        if st.plan.tracks and (self._has_hand_edits() or len(ids) != len(st.plan.tracks)):
+            extra = len(ids) - len(st.plan.tracks)
+            msg = "Make a whole new mix from all your songs?"
+            if extra > 0:
+                msg += f"\n\nThe {extra} song{'s' if extra != 1 else ''} you took out of the mix will be back in it."
+            if self._has_hand_edits():
+                msg += "\n\nYour changes by hand will be replaced (Undo brings the old mix back)."
+            if QMessageBox.question(self, APP, msg) != QMessageBox.StandardButton.Yes:
+                return
+        st.new_mix()
+        st.select(0)
+        self.statusBar().showMessage(f"A new mix of {len(st.plan.tracks)} songs. Press New mix again for another.", 8000)
 
     def refresh_ai(self):
         self.state.edit(lambda p, lib: planmod.recompute(p, lib))

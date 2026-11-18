@@ -23,6 +23,11 @@ TRANSITION_LABELS = {
     "cut": "Hard cut",
     "stem_bass": "Stems: true bass swap",
     "stem_blend": "Stems: bass and singers swap (one singer at a time)",
+    "stem_drums_first": "Stems: drums first - the next beat slides in under this song",
+    "stem_drums_last": "Stems: drums last - this beat carries the next song in",
+    "stem_instrumental": "Stems: instrumental bridge - both singers step out",
+    "stem_breakdown": "Stems: breakdown and drop - beat and bass out, then the next song drops in",
+    "stem_acapella_out": "Stems: a cappella out - this singer alone, then the next song",
     "stem_mashup": "Stems: mashup - this singer over the next song's music",
     "stem_vocal_in": "Stems: next singer arrives over this song's music",
 }

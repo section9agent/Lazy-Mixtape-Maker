@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import copy
 import tempfile
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QColor, QKeySequence, QPainter, QPen
+from PySide6.QtGui import QAction, QColor, QKeySequence, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox,
                                QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea, QSpinBox,
                                QSplitter, QToolBar, QVBoxLayout, QWidget)
+
+import numpy as np
 
 from .. import mashup as mm, stems
 from ..audio_io import SR
@@ -140,6 +143,7 @@ class MashupTimeline(QWidget):
             fill = QColor(col)
             fill.setAlpha(150 if c.muted else 200)
             p.fillRect(r, fill)
+            self._paint_wave(p, c, r)
             fi, fo = c.fade_in * self.pps, c.fade_out * self.pps
             p.setPen(QPen(QColor(16, 18, 23, 200), 1.5))
             if fi > 2:
@@ -158,6 +162,38 @@ class MashupTimeline(QWidget):
         x = int(self.x_of(self.playhead))
         p.setPen(QPen(QColor("#ff4d6d"), 2))
         p.drawLine(x, 0, x, self.height())
+
+    def _paint_wave(self, p: QPainter, c, r: QRectF):
+        """The stem's own waveform, drawn dark over the clip (as on the main window's timeline)."""
+        st = self.studio
+        sid = st.m.songs[c.song].song_id
+        w = st.waves.get(sid, {}).get(c.stem)
+        if w is None or not len(w):
+            return
+        clip = p.clipBoundingRect()
+        x0 = max(r.left(), clip.left() - 2) if not clip.isEmpty() else r.left()
+        x1 = min(r.right(), clip.right() + 2) if not clip.isEmpty() else r.right()
+        if x1 - x0 < 1:
+            return
+        rate = mm.rate(st.m, st.lib, c.song)
+        xs = np.arange(int(x0), int(x1) + 1, dtype=np.float64)
+        amp = np.zeros(len(xs))
+        for k in range(3):                       # a few looks per pixel so peaks survive zooming out
+            src = c.src_start + ((xs - r.left()) + k / 3.0) / self.pps * rate
+            idx = np.clip((src / mm.WAVE_STEP).astype(int), 0, len(w) - 1)
+            amp = np.maximum(amp, w[idx])
+        amp *= 10 ** (min(c.gain_db, 6.0) / 20)
+        amp = np.minimum(amp, 1.0)
+        top, bot = r.top() + 16, r.bottom() - 3
+        mid, half = (top + bot) / 2, (bot - top) / 2
+        path = QPainterPath()
+        path.moveTo(xs[0], mid)
+        for x, a in zip(xs, amp):
+            path.lineTo(x, mid - a * half)
+        for x, a in zip(xs[::-1], amp[::-1]):
+            path.lineTo(x, mid + a * half)
+        path.closeSubpath()
+        p.fillPath(path, QColor(8, 8, 12, 150 if c.muted else 190))
 
     # ----------------------------------------------------------------- mouse
     def _snap(self, t: float, mods) -> float:
@@ -291,6 +327,9 @@ class MashupStudio(TaskMixin, QMainWindow):
         self._redo: list[dict] = []
         self._busy = False
         self.renderer = mm.Renderer()
+        self.waves: dict[str, dict] = {}          # song id -> {stem: envelope} for drawing
+        self._wave_jobs: set[str] = set()
+        self._waves_new = False
         self.player = AudioPlayer()
         self._render_path: str | None = None
         self._render_n = 0
@@ -402,6 +441,24 @@ class MashupStudio(TaskMixin, QMainWindow):
         f.addRow(self.key)
         f.addRow("Key", self.key_from)
         f.addRow("Pitch", prow)
+        self.vlevel = QComboBox()
+        for k, t in mm.VOCAL_LEVELS.items():
+            self.vlevel.addItem(t, k)
+        self.vlevel.setToolTip("LUFS Lab's voice leveler on the vocals: it evens out quiet and loud lines "
+                               "(silence and breaths aren't boosted), then sets their loudness")
+        self.vlufs = QDoubleSpinBox()
+        self.vlufs.setRange(-36, -6)
+        self.vlufs.setDecimals(1)
+        self.vlufs.setSingleStep(0.5)
+        self.vlufs.setSuffix(" LUFS")
+        self.vlufs.setToolTip("How loud the leveled vocals are (the music of a typical song is around -14 to -9 LUFS)")
+        vrow = QHBoxLayout()
+        vrow.addWidget(self.vlevel)
+        vrow.addWidget(QLabel("to"))
+        vrow.addWidget(self.vlufs)
+        f.addRow("Level vocals", vrow)
+        self.vlevel.currentIndexChanged.connect(lambda _x: self._set(lambda m: setattr(m, "vocal_level", self.vlevel.currentData())))
+        self.vlufs.editingFinished.connect(lambda: self._set(lambda m: setattr(m, "vocal_lufs", float(self.vlufs.value()))))
         self.beat.toggled.connect(lambda on: self._set(lambda m: setattr(m, "beat_match", bool(on))))
         self.tempo_from.currentIndexChanged.connect(lambda _x: self._set(lambda m: setattr(m, "tempo_from", self.tempo_from.currentData())))
         self.bpm.editingFinished.connect(lambda: self._set(lambda m: setattr(m, "custom_bpm", float(self.bpm.value()))))
@@ -610,6 +667,10 @@ class MashupStudio(TaskMixin, QMainWindow):
             self.key_from.setEnabled(m.key_match)
             for i in (0, 1):
                 self.pitch[i].setValue(-13 if m.songs[i].pitch is None else m.songs[i].pitch)
+            self.vlevel.setCurrentIndex(self.vlevel.findData(m.vocal_level))
+            self.vlufs.setValue(m.vocal_lufs)
+            self.vlufs.setEnabled(m.vocal_level != "off")
+            self._load_waves()
             ok = m.ready()
             for w in (self.ai_btn, self.a_play, self.a_export, self.a_tomix):
                 w.setEnabled(ok)
@@ -624,6 +685,22 @@ class MashupStudio(TaskMixin, QMainWindow):
             self._show_time()
         finally:
             self._busy = False
+
+    def _load_waves(self):
+        """Work out the stems' waveforms in the background (once per song), then redraw."""
+        for s in self.m.songs:
+            sid = s.song_id
+            if not sid or sid in self.waves or sid in self._wave_jobs or not stems.cached(sid):
+                continue
+            self._wave_jobs.add(sid)
+
+            def work(sid=sid):
+                try:
+                    self.waves[sid] = mm.stem_waves(sid)
+                except Exception:  # noqa: BLE001 - a picture we can do without
+                    self.waves[sid] = {}
+                self._waves_new = True
+            threading.Thread(target=work, daemon=True).start()
 
     def _unsplit(self) -> list[str]:
         return [s.song_id for s in self.m.songs if s.song_id and not stems.cached(s.song_id)]
@@ -833,6 +910,9 @@ class MashupStudio(TaskMixin, QMainWindow):
         self._show_time()
 
     def _tick(self):
+        if self._waves_new:
+            self._waves_new = False
+            self.timeline.update()
         if self.player.playing:
             self.timeline.playhead = self.player.position()
             self.timeline.update()

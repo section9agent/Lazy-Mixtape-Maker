@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -266,6 +267,31 @@ def cmd_stems(args):
             print(f"    copied to {d}")
 
 
+def cmd_deep(args):
+    """Deep analysis with All-In-One: split (if needed) and analyse songs, and show both analyses side by side."""
+    from . import deep, stems
+    from .engine import analyze_library
+    files = audio_io.list_audio_files(args.files)
+    lib, paths, errors = analyze_library(files)
+    for e in errors:
+        print("Couldn't read:", e)
+    if not deep.available():
+        sys.exit("Error: deep analysis needs the \"with stems\" download of the app.")
+    for sid, an in lib.items():
+        name = Path(paths[sid]).name
+        try:
+            if not stems.cached(sid):
+                print(f"  {name}: splitting into stems…", flush=True)
+                stems.split(paths[sid], sid)
+            res = deep.run(paths[sid], sid, force=args.force)
+        except (stems.StemsError, deep.DeepError) as e:
+            sys.exit(f"Error: {name}: {e}")
+        f = deep.to_fields(an, res)
+        print(f"{name}\n  the app:    {deep.summary(an)}\n  All-In-One: {deep.summary(an, f['sections'], f['bpm'], f['grid_origin'])}")
+        if args.json:
+            print(json.dumps(res))
+
+
 def build_parser():
     ap = argparse.ArgumentParser(prog="lmm", description="Lazy Mixtape Maker - offline auto-DJ")
     ap.add_argument("--version", action="version", version=__version__)
@@ -364,6 +390,11 @@ def build_parser():
     sm.add_argument("--force", action="store_true", help="split again even if already done")
     sm.add_argument("--best", action="store_true", help="slightly cleaner stems, twice as slow")
     sm.set_defaults(fn=cmd_stems)
+    dp = sub.add_parser("deep", help="(with stems) analyse songs with All-In-One and compare with the app's analysis")
+    dp.add_argument("files", nargs="+", help="songs or folders")
+    dp.add_argument("--force", action="store_true", help="analyse again even if already done")
+    dp.add_argument("--json", action="store_true", help="also print the raw result")
+    dp.set_defaults(fn=cmd_deep)
     return ap
 
 

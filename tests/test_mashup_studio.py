@@ -51,7 +51,28 @@ def test_studio(app, songs, tmp_path, monkeypatch):  # noqa: F811
     voc = next(c for c in w.m.clips if c.stem == "vocals")
     bar = mm.bar_seconds(w.m, lib)
     tl = w.timeline
-    w.timeline.grab()                                                         # paints without trouble
+    from PySide6.QtWidgets import QApplication
+    end = time.time() + 30
+    while not all(i in w.waves for i in ids) and time.time() < end:          # waveforms load in the background
+        QApplication.processEvents()
+        time.sleep(0.02)
+    assert all(set(w.waves[i]) == {"bass", "drums", "other", "vocals"} for i in ids)
+    img = w.timeline.grab().toImage()                                         # paints, waveforms and all
+    vr = tl.clip_rect(voc)
+    y_mid = int(vr.center().y() + 8)
+    dark = sum(1 for x in range(int(vr.left()) + 5, int(min(vr.right(), vr.left() + 200)))
+               if img.pixelColor(x, y_mid).lightness() < 60)
+    assert dark > 20                                                          # the vocal's waveform is drawn in its clip
+
+    # LUFS Lab's voice leveler on the vocals
+    assert w.vlevel.currentData() == "off" and not w.vlufs.isEnabled()
+    w.vlevel.setCurrentIndex(w.vlevel.findData("medium"))
+    assert w.m.vocal_level == "medium" and w.vlufs.isEnabled()
+    w.vlufs.setValue(-20.0)
+    w.vlufs.editingFinished.emit()
+    assert w.m.vocal_lufs == -20.0
+    w.undo(); w.undo()
+    assert w.m.vocal_level == "off"
 
     # drag the vocals one bar to the right (snapped to bars)
     r = tl.clip_rect(voc)

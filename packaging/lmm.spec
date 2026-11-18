@@ -21,7 +21,8 @@ datas += [(str(ROOT / "lazy_mixtape_maker" / "stems_worker.py"), "lazy_mixtape_m
 STEMS = os.environ.get("LMM_VARIANT", "") == "stems"
 if STEMS:
     for pkg in ("audio_separator", "beartype", "diffq", "julius", "einops", "ml_collections", "rotary_embedding_torch",
-                "onnx2torch", "samplerate", "resampy", "pydub", "yaml", "onnxruntime", "onnx", "audioread"):
+                "onnx2torch", "samplerate", "resampy", "pydub", "yaml", "onnxruntime", "onnx", "audioread",
+                "allin1_infer", "madmom_infer", "demucs_infer", "hydra", "omegaconf", "antlr4", "huggingface_hub"):
         try:
             d, b, h = collect_all(pkg)
             datas += d; binaries += b; hidden += h
@@ -31,9 +32,13 @@ if STEMS:
     if not (models / "htdemucs.yaml").exists():
         raise SystemExit("packaging/stems-models is missing - download the model first (see build.yml)")
     datas += [(str(models), "stems-models")]
+    deep_models = ROOT / "packaging" / "deep-models"
+    if not (deep_models / "models--taejunkim--allinone").exists():
+        raise SystemExit("packaging/deep-models is missing - download the models first (see build.yml)")
+    datas += [(str(deep_models), "deep-models")]
 
 # Only the Qt parts the app uses keep the download small.
-excludes = ([] if STEMS else ["torch", "audio_separator", "onnxruntime", "onnx"]) + ["tkinter", "matplotlib", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.Qt3DCore",
+excludes = ([] if STEMS else ["torch", "audio_separator", "onnxruntime", "onnx", "allin1_infer", "matplotlib"]) + ["tkinter", "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.Qt3DCore",
             "PySide6.QtQuick", "PySide6.QtQml", "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtPdf"]
 
 a = Analysis([str(ROOT / "packaging" / "entry.py")], pathex=[str(ROOT)], binaries=binaries, datas=datas,

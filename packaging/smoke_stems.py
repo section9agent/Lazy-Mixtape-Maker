@@ -4,6 +4,7 @@
 
 Runs the app's own command line (`LazyMixtapeMaker stems song.wav --out ...`), which starts the app again as
 the stem worker, copies the packaged model into a fresh data folder and splits the song - all offline."""
+import json
 import os
 import subprocess
 import sys
@@ -43,6 +44,23 @@ def main(app: str) -> int:
         y, _ = sf.read(str(work / "out" / "smoke song" / "vocals.flac"))
         print("vocals length", len(y) / sr, "s")
         ok = abs(len(y) / sr - 12) < 0.5
+    if ok:
+        # deep analysis (All-In-One) on the same song's stems, also offline
+        t0 = time.time()
+        r = subprocess.run([app, "deep", str(song)], env=env, timeout=1800, capture_output=True, text=True)
+        print("deep: exit code", r.returncode, f"after {time.time() - t0:.0f} s")
+        print(r.stdout[-2000:], r.stderr[-4000:])
+        res = list((work / "data" / "stems").glob("*/deep.json"))
+        for st in (work / "data" / "stems").glob("*/deep-status.jsonl"):
+            print("deep worker said:", st.read_text()[-3000:])
+        if not res:
+            ok = False
+            print("no deep analysis result")
+        else:
+            d = json.loads(res[0].read_text())
+            print("deep result:", d.get("bpm"), "BPM,", len(d.get("beats", [])), "beats,",
+                  [s["label"] for s in d.get("segments", [])])
+            ok = r.returncode == 0 and len(d.get("beats", [])) > 4
     print("SMOKE TEST", "PASSED" if ok else "FAILED")
     return 0 if ok else 1
 

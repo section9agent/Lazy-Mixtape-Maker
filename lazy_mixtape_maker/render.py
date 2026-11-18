@@ -98,7 +98,8 @@ def transition_curves(kind: str, L: int):
 
 
 # Transitions that work on a song's stems (drums, bass, vocals, other) instead of on bass / treble bands.
-STEM_KINDS = ("stem_bass", "stem_blend", "stem_mashup", "stem_vocal_in")
+STEM_KINDS = ("stem_bass", "stem_blend", "stem_drums_first", "stem_drums_last", "stem_instrumental", "stem_breakdown",
+              "stem_acapella_out", "stem_mashup", "stem_vocal_in")
 STEM_NAMES = ("drums", "bass", "vocals", "other")
 
 
@@ -120,6 +121,21 @@ def stem_curves(kind: str, L: int):
     elif kind == "stem_vocal_in":         # the new song's singer arrives over the old song's music
         out = {"drums": _down(u, 0.7, 1.0), "other": _down(u, 0.7, 1.0), "bass": _down(u, 0.81, 0.89), "vocals": _down(u, 0.0, 0.15)}
         inn = {"drums": _up(u, 0.7, 1.0), "other": _up(u, 0.7, 1.0), "bass": _up(u, 0.81, 0.89), "vocals": _up(u, 0.05, 0.2)}
+    elif kind == "stem_drums_first":      # the new beat slides in under the old song first, then the rest follows
+        out = {"drums": _down(u, 0.2, 0.35), "bass": _down(u, 0.56, 0.64), "other": _down(u, 0.5, 1.0), "vocals": _down(u, 0.4, 0.6)}
+        inn = {"drums": _up(u, 0.0, 0.25), "bass": _up(u, 0.56, 0.64), "other": _up(u, 0.5, 0.9), "vocals": _up(u, 0.6, 0.8)}
+    elif kind == "stem_drums_last":       # the old beat keeps going while the new song's music and singer arrive
+        out = {"drums": _down(u, 0.85, 1.0), "bass": _down(u, 0.81, 0.89), "other": _down(u, 0.2, 0.6), "vocals": _down(u, 0.0, 0.3)}
+        inn = {"drums": _up(u, 0.85, 1.0), "bass": _up(u, 0.81, 0.89), "other": _up(u, 0.1, 0.5), "vocals": _up(u, 0.4, 0.6)}
+    elif kind == "stem_instrumental":     # both singers step out: an instrumental bridge between the songs
+        out = {"drums": _down(u, 0.3, 0.7), "other": _down(u, 0.3, 0.7), "bass": _down(u, 0.46, 0.54), "vocals": _down(u, 0.0, 0.2)}
+        inn = {"drums": _up(u, 0.3, 0.7), "other": _up(u, 0.3, 0.7), "bass": _up(u, 0.46, 0.54), "vocals": _up(u, 0.8, 1.0)}
+    elif kind == "stem_breakdown":        # the old song drops its beat and bass, builds, and the new one drops in
+        out = {"drums": _down(u, 0.0, 0.1), "bass": _down(u, 0.0, 0.1), "other": _down(u, 0.73, 0.77), "vocals": _down(u, 0.73, 0.77)}
+        inn = {"drums": _up(u, 0.74, 0.76), "bass": _up(u, 0.74, 0.76), "other": _up(u, 0.74, 0.76), "vocals": _up(u, 0.74, 0.76)}
+    elif kind == "stem_acapella_out":     # the old song's music falls away under its singer, then the new song comes in
+        out = {"drums": _down(u, 0.0, 0.15), "bass": _down(u, 0.0, 0.1), "other": _down(u, 0.0, 0.2), "vocals": _down(u, 0.6, 0.8)}
+        inn = {"drums": _up(u, 0.5, 0.55), "bass": _up(u, 0.5, 0.55), "other": _up(u, 0.4, 0.55), "vocals": _up(u, 0.75, 0.9)}
     else:                                 # a DJ blend: the bass (and, for stem_blend, the singers) swap in the middle
         out = {"drums": _down(u, 0.5, 1.0), "other": _down(u, 0.5, 1.0), "bass": _down(u, 0.46, 0.54)}
         inn = {"drums": _up(u, 0.0, 0.5), "other": _up(u, 0.0, 0.5), "bass": _up(u, 0.46, 0.54)}

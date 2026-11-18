@@ -22,7 +22,11 @@ from .tempo import RateCurve, build_curve
 
 
 # Transitions that mix a song's stems (they need the optional stems add-on; without stems they play as eq_swap).
-STEM_TYPES = ("stem_bass", "stem_blend", "stem_mashup", "stem_vocal_in")
+STEM_TYPES = ("stem_bass", "stem_blend", "stem_drums_first", "stem_drums_last", "stem_instrumental", "stem_breakdown",
+              "stem_acapella_out", "stem_mashup", "stem_vocal_in")
+# what the AI picks from for "Stem blends" (the mashup-style ones depend on the singing, so they are left to you)
+AUTO_STEM_TYPES = (("stem_blend", 0.35), ("stem_bass", 0.15), ("stem_drums_first", 0.15), ("stem_instrumental", 0.15),
+                   ("stem_drums_last", 0.1), ("stem_breakdown", 0.1))
 TRANSITION_TYPES = ("eq_swap", "crossfade", "cut_fx", "cut") + STEM_TYPES
 
 
@@ -161,6 +165,9 @@ def order_songs(songs: list[SongAnalysis], s: MixSettings) -> list[SongAnalysis]
     songs = sorted(songs, key=lambda a: (a.bpm, a.id))
     n = len(songs)
     C = np.array([[0.0 if i == j else _pair_cost(songs[i], songs[j]) for j in range(n)] for i in range(n)])
+    if s.seed:
+        # a "new mix": every pairing's cost is nudged at random, so a different (still smooth) order wins
+        C = C * (1.0 + 0.6 * np.random.default_rng(s.seed).random(C.shape))
 
     def total(path):
         return float(sum(C[a, b] for a, b in zip(path, path[1:])))
@@ -304,8 +311,12 @@ def _auto_transition(a: TrackPlan, b: TrackPlan, tr_matched: bool, plan: MixPlan
     ttype = "eq_swap" if bars >= 4 else "crossfade"
     if style in ("eq_swap", "crossfade"):
         ttype = style
-    elif style == "stem_blend":          # stem blends wherever a proper blend fits
-        ttype = "stem_blend" if bars >= 4 else "crossfade"
+    elif style == "stem_blend":          # stem blends wherever a proper blend fits, of varied kinds
+        if bars >= 4:
+            kinds, weights = zip(*AUTO_STEM_TYPES)
+            ttype = rng.choices(kinds, weights)[0]
+        else:
+            ttype = "crossfade"
     elif ttype == "eq_swap" and rng.random() < 0.2:
         ttype = "crossfade"
     return ttype, bars * 4

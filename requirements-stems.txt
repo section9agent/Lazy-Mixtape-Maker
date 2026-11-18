@@ -2,3 +2,4 @@
 # PyTorch itself is installed first by the build (the CPU-only build on Windows and Linux keeps the download small).
 audio-separator[cpu]==0.48.0
 audioread>=3.0    # audio-separator imports it but doesn't list it
+all-in-one-infer==3.1.0   # deep analysis (beats, downbeats, song parts); MIT, models MIT

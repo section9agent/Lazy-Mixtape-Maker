@@ -2,6 +2,8 @@
 library, the selection, and undo / redo of plan edits."""
 from __future__ import annotations
 
+import copy
+
 import json
 from pathlib import Path
 
@@ -71,7 +73,8 @@ class AppState(QObject):
     def _snap(self) -> str:
         return json.dumps({"plan": self.plan.to_dict(), "video": self.video.to_dict(),
                            "info": {"songs": {i: [a.artist, a.title] for i, a in self.lib.items()},
-                                    "covers": songinfo.snapshot(self.session.extra)}})
+                                    "covers": songinfo.snapshot(self.session.extra)},
+                           "deep": sorted(self.session.extra.get("deep_orig", {}))})
 
     def _restore(self, snap: str):
         d = json.loads(snap)
@@ -83,6 +86,15 @@ class AppState(QObject):
                 if i in self.lib:
                     self.lib[i].artist, self.lib[i].title = artist, title
             songinfo.restore(self.session.extra, info["covers"])
+        want = set(d.get("deep", []))                  # which songs use the deep analysis
+        have = set(self.session.extra.get("deep_orig", {}))
+        if want != have:
+            from .. import deep
+            for sid in (want ^ have) & set(self.lib):
+                try:
+                    deep.use(self.lib, self.session.extra, sid, sid in want)
+                except Exception:  # noqa: BLE001 - its result went missing: keep the app's analysis
+                    pass
 
     def _push(self, snap: str):
         self._undo.append(snap)
@@ -195,9 +207,9 @@ class AppState(QObject):
             planmod.recompute(plan, library)
         self.edit(fn)
 
-    def generate(self, settings: MixSettings):
-        """Rebuild the whole mix from the songs currently in it (hand edits are discarded)."""
-        ids = [t.song_id for t in self.plan.tracks] or list(self.lib)
+    def generate(self, settings: MixSettings, ids: list[str] | None = None):
+        """Rebuild the whole mix from the songs currently in it - or from `ids` (hand edits are discarded)."""
+        ids = ids or [t.song_id for t in self.plan.tracks] or list(self.lib)
 
         def fn(plan, library):
             self.session.plan = planmod.plan_mix(library, ids, settings)
@@ -206,6 +218,22 @@ class AppState(QObject):
         self.edit(fn)
         self.sel, self.sel_fx = -1, None
         self.selection.emit()
+
+    def all_song_ids(self) -> list[str]:
+        """Every song added to this project that can still be found - including ones taken out of the mix."""
+        from pathlib import Path
+        return [sid for sid in self.lib if sid in self.paths and Path(self.paths[sid]).exists()]
+
+    def new_mix(self) -> int:
+        """A whole new mix from every song: a different order, different transitions and effects. Returns the seed."""
+        import random
+        settings = copy.deepcopy(self.plan.settings)
+        if settings.order == "given":
+            settings.order = "auto"
+        seed = random.randint(1, 2 ** 31 - 1)
+        settings.seed = seed
+        self.generate(settings, self.all_song_ids())
+        return seed
 
     # ---------------------------------------------------------------- sessions
     def new(self):
