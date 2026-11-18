@@ -1,10 +1,21 @@
 ## What's new
 
+### Deep analysis (All-In-One)
+- **Mix → Deep analysis (All-In-One)…** runs the All-In-One neural network (Taejun Kim & Juhan Nam) on each song's stems to find the tempo, beats, downbeats and song parts (intro, verse, chorus, bridge, outro).
+- See the app's analysis and All-In-One's side by side and choose **per song** which one the mix uses. The app's own analysis is always kept, Undo works, and the choice is saved with the session.
+- Included in the **-Stems** downloads (models built in, works offline).
+
+### More for mixes
+- **New mix** (toolbar, Ctrl+Shift+N): a whole new mix from every song you've added (even ones you took out) - a different order, different transitions and effects each time.
+- **Five more stem transitions:** drums first, drums last, instrumental bridge, breakdown and drop, and a cappella out (nine in all). "Stem blends, varied" now lets the AI pick among them.
+
 ### Mashup Studio
-- **Tools → Mashup Studio** (Ctrl+Shift+M): take two songs, split them into stems (vocals, drums, bass, other) and mash them up.
+- **Mashup Studio** (toolbar button, Tools menu, Ctrl+Shift+M): take two songs, split them into stems (vocals, drums, bass, other) and mash them up.
 - **Let the AI do it:** *Song B's vocals over song A's music* (or the other way round), *Trade back and forth* (the music and the singer swap songs every 16 bars), or let the AI choose.
 - **Or do it yourself, with full control:** eight lanes (each stem of each song), clips you drag, trim, split, duplicate, mute and fade, snapping to bars or beats. A clip panel sets exact positions, source times, lengths, volume and fades.
 - **Beat match** (song A's tempo, song B's, or your own) and **key match** (keep either song's key, or set the pitch shift yourself).
+- Each clip shows its **stem's waveform**, so you can see where the singing, the beat and the bass are.
+- **Level vocals** with LUFS Lab's voice leveler: evens out quiet and loud lines and sets the vocals to the loudness you choose.
 - Play from the playhead, undo / redo, save as `.lmmash`, export WAV / FLAC / MP3, or **Add to mix** to drop the mashup into your mixtape.
 
 ### Two downloads: with or without stems
@@ -27,7 +38,7 @@
 - **Visualization Studio:** a **Project settings…** window (Ctrl+Shift+G) with visual mode, size, frame rate, quality, blend, cover card, source video and the default transition.
 
 ### Also new
-- **Stem transitions (optional add-on):** four new transition styles that mix a song's drums, bass, vocals and other parts separately: true bass swap, bass and singers swap (one singer at a time), mashup (this singer over the next song's music) and next singer arrives. Songs are split once and remembered (**Mix > Split songs into stems…**, or the button in the Transition tab). Needs the **-Stems** download; without it, or until the songs are split, these styles play as a normal blend.
+- **Stem transitions:** transition styles that mix a song's drums, bass, vocals and other parts separately: true bass swap, bass and singers swap (one singer at a time), mashup (this singer over the next song's music) and next singer arrives. Songs are split once and remembered (**Mix > Split songs into stems…**, or the button in the Transition tab). Needs the **-Stems** download; without it, or until the songs are split, these styles play as a normal blend.
 - The shader editor now has a **Name** box, so a visual can be renamed while you edit it.
 - **Help > About:** credits for the open-source software used (with licences), "Coded by Claude & Emmanuel Hoachlander", and a **Donate with PayPal** button.
 - **Automatic updates:** the app can check GitHub releases and download and install the newest version for you (Install and restart / Later / Skip this version). Turn it off any time under **Help > Check for updates automatically**.

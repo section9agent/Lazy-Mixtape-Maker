@@ -91,6 +91,8 @@ Use **Generate mix** (Ctrl+G) to build, or rebuild, the mix. Rebuilding replaces
 
 **Refresh AI suggestions** (Mix menu) redoes everything you haven't changed by hand and keeps your own edits.
 
+**New mix** (toolbar, Mix menu, Ctrl+Shift+N) makes a whole new mix from **every song you've added** - including songs you took out of the mix - with a different song order, different transitions and different effects each time. The order is still a smooth one: the AI picks among the good orders instead of always the same best one. Press it again for another mix; Undo brings the previous one back. If you had kept your own song order, New mix lets the AI order the songs.
+
 ---
 
 ## 5. Playing the mix
@@ -352,6 +354,7 @@ Very long files (over about 40 minutes) work too; the music-reactive part of the
 | Ctrl+I / Ctrl+Shift+I | Add songs / Add folder |
 | Ctrl+Shift+E | Edit song info (cover, artist, title) |
 | Ctrl+G | Generate mix |
+| Ctrl+Shift+N | New mix (from every song you've added) |
 | Ctrl+Shift+G | Project settings (mix window and Visualization Studio) |
 | Space | Play / pause |
 | Ctrl+E / Ctrl+Shift+E / Ctrl+Alt+E | Export audio / Export video / Export both |
@@ -453,24 +456,37 @@ In **Edit code** (Visuals tab or Shader Manager) the **Name** box at the top let
 
 The app can split a song into four **stems** (drums, bass, vocals and everything else) and use them for transitions that an ordinary blend can't do.
 
-### The four stem transitions
+### The stem transitions
 
 Pick them in the **Transition** tab under *Style*, like any other transition:
 
 - **Stems: true bass swap** - a DJ blend where the real bass lines swap in the middle (not just the low frequencies, which also carry kick drums).
 - **Stems: bass and singers swap** - the same, and only one singer is ever heard: the old singer until the middle, the new one after it. Use this when two vocals would clash.
+- **Stems: drums first** - the next song's beat slides in under this song first; then the bass swaps, the singers change over and the rest of the next song follows.
+- **Stems: drums last** - this song's beat keeps going while the next song's music and singer arrive over it; the beat and bass change over at the very end.
+- **Stems: instrumental bridge** - both singers step out, so the middle of the blend is music only, with the bass swapping halfway.
+- **Stems: breakdown and drop** - this song drops its beat and bass, leaving the music and singer to build, then the next song drops in all at once three-quarters of the way through.
+- **Stems: a cappella out** - this song's music falls away under its singer, who carries on alone; then the next song comes in underneath and its singer takes over.
 - **Stems: mashup** - this song's singer carries on over the *next* song's music, and hands over to the new singer at the end of the blend.
 - **Stems: next singer arrives** - the next song's singer comes in over this song's music, then the music changes underneath.
 
 Longer blends (16 to 32 beats or more) suit these best. For mashups it helps when the two songs are in matching keys.
 
-To have the AI use stem blends wherever a proper blend fits, choose **Stem blends** as the transition style in the settings window (or in Mix > Project settings).
+To have the AI use stem blends wherever a proper blend fits, choose **Stem blends, varied** as the transition style in the settings window (or in Mix > Project settings). The AI then picks among the bass swap, bass and singers swap, drums first, drums last, instrumental bridge and breakdown; the a cappella and mashup styles depend on the singing, so they are left for you to choose.
 
 ### Splitting songs
 
 A stem transition needs both of its songs split. The Transition tab tells you when they aren't and offers **Split these two songs into stems…**; **Mix > Split songs into stems…** does every song in the mix. Each song is split once and remembered, even if the file is later renamed or moved. Until its songs are split, a stem transition simply plays as a normal bass-swap blend, and the status bar says so.
 
 Away from the blend the song is left exactly as it was: stems are only used inside the overlap.
+
+### Deep analysis (All-In-One)
+
+**Mix > Deep analysis (All-In-One)…** runs **All-In-One**, a neural network by Taejun Kim and Juhan Nam, on each song's stems. It finds the tempo, the beats and downbeats, and the song's parts (intro, verse, chorus, bridge, outro). It comes with the **-Stems** download.
+
+The window lists the songs in your mix with both analyses side by side: tempo, the first downbeat and the song's parts. **Analyse the songs** splits songs into stems where needed and analyses each one (once per song; the result is kept). Then choose per song in **The mix uses**, or use one of the buttons for every song. The mix is worked out again straight away, so you can listen and compare. The app's own analysis is never thrown away: switch back any time, and Undo works too. Your choice is saved with the session.
+
+How to judge: the better analysis is the one whose blends land on the beat and start and end at the right moments in the songs. On the command line, `LazyMixtapeMaker deep songs…` prints both analyses for each song.
 
 ### Getting the stem engine
 
@@ -489,14 +505,15 @@ Note on licences: the engine's code is MIT, but the terms of the trained Demucs 
 
 ## Mashup Studio
 
-**Tools > Mashup Studio** (Ctrl+Shift+M) takes two songs, splits them into stems and lets you build a mashup from them - by hand, by the AI, or the AI first and then by hand. It opens with the selected song of your mix and the one after it; the **Other file…** buttons take any song from your computer.
+**Mashup Studio** (toolbar button, Tools menu, Ctrl+Shift+M) takes two songs, splits them into stems and lets you build a mashup from them - by hand, by the AI, or the AI first and then by hand. It opens with the selected song of your mix and the one after it; the **Other file…** buttons take any song from your computer.
 
 ### The screen
 
 - **Songs** - song A and song B, with their tempo and key (and what they become after matching). **Split into stems** splits whichever of the two isn't split yet (once per song).
 - **Beat match** plays both songs at one tempo: song A's, song B's, or one you type in. Bars of the timeline then line up with bars of both songs.
 - **Key match** shifts one song (at most 4 semitones) into a key that goes with the other; choose whose key is kept. The **Pitch** boxes override it with your own shift (*auto* = key matching decides).
-- **The timeline** has eight lanes: vocals, drums, bass and other of song A, then of song B. Each coloured block is a **clip**: a stretch of one stem placed at a time.
+- **Level vocals** runs the vocal stems through the voice leveler from **LUFS Lab**: it evens out quiet and loud lines (silence and breaths aren't boosted), then sets the vocals to the loudness you choose (default -18 LUFS; the music of a typical song is around -14 to -9 LUFS). *Gentle*, *Medium* and *Strong* set how hard it evens things out. Leave it *Off* to hear the vocals as they are.
+- **The timeline** has eight lanes: vocals, drums, bass and other of song A, then of song B. Each coloured block is a **clip**: a stretch of one stem placed at a time, with that stem's own waveform drawn in it, so you can see where the singing, the beat or the bass is.
 
 ### Letting the AI do it
 

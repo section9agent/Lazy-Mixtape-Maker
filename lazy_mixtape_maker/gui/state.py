@@ -231,7 +231,7 @@ class AppState(QObject):
         if settings.order == "given":
             settings.order = "auto"
         seed = random.randint(1, 2 ** 31 - 1)
-        settings.seed = seed
+        settings.seed = settings.shuffle = seed
         self.generate(settings, self.all_song_ids())
         return seed
 

@@ -90,6 +90,7 @@ class MixSettings:
     use_effects: bool = True
     track_lufs: float = -16.0          # per-song loudness target before the master limiter
     seed: int = 0
+    shuffle: int = 0                   # set by "New mix": picks a different (still smooth) song order; 0 = the best one
     cue_point: str = "start"           # where the cue sheet marks each track: start | middle | end
 
 
@@ -165,9 +166,9 @@ def order_songs(songs: list[SongAnalysis], s: MixSettings) -> list[SongAnalysis]
     songs = sorted(songs, key=lambda a: (a.bpm, a.id))
     n = len(songs)
     C = np.array([[0.0 if i == j else _pair_cost(songs[i], songs[j]) for j in range(n)] for i in range(n)])
-    if s.seed:
+    if s.shuffle:
         # a "new mix": every pairing's cost is nudged at random, so a different (still smooth) order wins
-        C = C * (1.0 + 0.6 * np.random.default_rng(s.seed).random(C.shape))
+        C = C * (1.0 + 0.6 * np.random.default_rng(s.shuffle).random(C.shape))
 
     def total(path):
         return float(sum(C[a, b] for a, b in zip(path, path[1:])))

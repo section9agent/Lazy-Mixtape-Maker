@@ -24,6 +24,20 @@ def say(**kw):
         print(line, flush=True)
 
 
+def _safe_streams():
+    """A windowed program may have no stdout / stderr, and on Windows they can't print every character (the
+    engines print things like a check mark): make both always safe to write to."""
+    for name in ("stdout", "stderr"):
+        st = getattr(sys, name)
+        if st is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+        else:
+            try:
+                st.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, ValueError, OSError):
+                pass
+
+
 def ensure_ffmpeg(bin_dir):
     """The engine insists on a program called "ffmpeg" on the PATH. When there isn't one, put the copy of
     ffmpeg that comes with the app (or with imageio-ffmpeg) there under that name."""
@@ -65,9 +79,7 @@ def main(argv):
         say(event="error", message="usage: stems_worker <song> <output folder> <models folder> <model> <shifts>")
         return 2
     song, out, models, model, shifts = argv[1], argv[2], argv[3], argv[4], int(argv[5])
-    for name in ("stdout", "stderr"):                        # a windowed program may have neither
-        if getattr(sys, name) is None:
-            setattr(sys, name, open(os.devnull, "w"))
+    _safe_streams()
     try:
         from audio_separator.separator import Separator
     except Exception as e:  # noqa: BLE001
@@ -135,9 +147,7 @@ def deep_main(argv):
         say(event="error", message="usage: stems_worker deep <stems folder> <result .json> <models folder>")
         return 2
     stems_dir, out_json, models = argv[1], argv[2], argv[3]
-    for name in ("stdout", "stderr"):
-        if getattr(sys, name) is None:
-            setattr(sys, name, open(os.devnull, "w"))
+    _safe_streams()
     os.makedirs(models, exist_ok=True)
     os.environ["HF_HUB_CACHE"] = models                       # where the model files are kept
     if os.path.isdir(os.path.join(models, "models--taejunkim--allinone")):

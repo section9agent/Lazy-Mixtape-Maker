@@ -313,13 +313,13 @@ def test_new_mix_from_all_songs(app, tmp_path, monkeypatch):
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
     w.new_mix()
     assert sorted(t.song_id for t in st.plan.tracks) == sorted(ids)  # it's back
-    assert st.plan.settings.seed != 0
+    assert st.plan.settings.seed != 0 and st.plan.settings.shuffle == st.plan.settings.seed
     st.undo()
     assert len(st.plan.tracks) == len(ids) - 1
     # different seeds give different orders (still each a smooth path)
     songs = [st.lib[i] for i in ids]
-    orders = {tuple(a.id for a in order_songs(songs, MixSettings(seed=k))) for k in range(1, 30)}
+    orders = {tuple(a.id for a in order_songs(songs, MixSettings(shuffle=k))) for k in range(1, 30)}
     assert len(orders) >= 2
-    assert tuple(a.id for a in order_songs(songs, MixSettings(seed=5))) == tuple(a.id for a in order_songs(songs, MixSettings(seed=5)))
+    assert tuple(a.id for a in order_songs(songs, MixSettings(shuffle=5))) == tuple(a.id for a in order_songs(songs, MixSettings(shuffle=5)))
     st.dirty = False
     w.close()

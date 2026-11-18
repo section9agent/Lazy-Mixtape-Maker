@@ -399,6 +399,11 @@ def build_parser():
 
 
 def main(argv=None):
+    for st in (sys.stdout, sys.stderr):                 # song names and tags can hold any character
+        try:
+            st.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
     args = build_parser().parse_args(argv)
     try:
         args.fn(args)
