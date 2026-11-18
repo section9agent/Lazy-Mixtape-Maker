@@ -21,7 +21,7 @@ datas += [(str(ROOT / "lazy_mixtape_maker" / "stems_worker.py"), "lazy_mixtape_m
 STEMS = os.environ.get("LMM_VARIANT", "") == "stems"
 if STEMS:
     for pkg in ("audio_separator", "beartype", "diffq", "julius", "einops", "ml_collections", "rotary_embedding_torch",
-                "onnx2torch", "samplerate", "resampy", "pydub", "yaml", "onnxruntime", "onnx"):
+                "onnx2torch", "samplerate", "resampy", "pydub", "yaml", "onnxruntime", "onnx", "audioread"):
         try:
             d, b, h = collect_all(pkg)
             datas += d; binaries += b; hidden += h

@@ -224,6 +224,8 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         self.a_vpreview = act("Preview video", self.open_video_preview, "Ctrl+Shift+P",
                               "Watch the visuals in real time, in sync with the timeline", "◐")
         self.a_studio = act("Visualization Studio", self.open_studio, "Ctrl+Shift+V", "Make a video for a mixtape you already have", "◉")
+        self.a_mashup = act("Mashup Studio", self.open_mashup_studio, "Ctrl+Shift+M",
+                            "Split two songs into stems and mash them up - by hand or by the AI")
         self.a_overlay = act("Show cover art, artist and title on videos", self.toggle_overlay)
         self.a_overlay.setCheckable(True)
         self.a_overlay.setChecked(prefs.overlay_enabled())
@@ -249,6 +251,7 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         tm = m.addMenu("&Tools")
         tm.addAction(self.a_vpreview)
         tm.addAction(self.a_studio)
+        tm.addAction(self.a_mashup)
         sm = m.addMenu("&Settings")
         sm.addAction(self.a_overlay)
         hm = m.addMenu("&Help")
@@ -674,6 +677,19 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         w.raise_(); w.activateWindow()
         if path:
             w.open_audio(path)
+
+    def open_mashup_studio(self):
+        from .mashup_studio import MashupStudio
+        w = getattr(self, "_mashup", None)
+        if w is None or not w.isVisible():
+            st = self.state
+            ids = [t.song_id for t in st.plan.tracks]
+            i = st.sel if 0 <= st.sel < len(ids) else 0
+            pick = ids[i:i + 2] if len(ids) > i + 1 else ids[:2]
+            w = self._mashup = MashupStudio(st.lib, st.paths, main=self, songs=pick)
+            w.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+            w.show()
+        w.raise_(); w.activateWindow()
 
     def toggle_overlay(self, on: bool):
         prefs.set("show_overlay", bool(on))

@@ -29,7 +29,8 @@ class AudioPlayer:
 
             kw = {}
             if os.environ.get("LMM_AUDIO_BACKEND", "").lower() == "null":   # for tests
-                kw["backends"] = [miniaudio.Backend.Null]
+                null = getattr(miniaudio.Backend, "NULL", None) or getattr(miniaudio.Backend, "Null")
+                kw["backends"] = [null]
             dev = miniaudio.PlaybackDevice(output_format=miniaudio.SampleFormat.SIGNED16, nchannels=2,
                                            sample_rate=SR, buffersize_msec=80, **kw)
             gen = self._stream()

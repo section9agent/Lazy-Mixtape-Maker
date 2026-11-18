@@ -1,3 +1,4 @@
 # The stem engine, packed into the "with stems" download (see packaging/lmm.spec, LMM_VARIANT=stems).
 # PyTorch itself is installed first by the build (the CPU-only build on Windows and Linux keeps the download small).
 audio-separator[cpu]==0.48.0
+audioread>=3.0    # audio-separator imports it but doesn't list it
