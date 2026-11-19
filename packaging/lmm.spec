@@ -1,5 +1,6 @@
 # PyInstaller spec - run from the project root:  pyinstaller packaging/lmm.spec --noconfirm
 import os
+import re
 import sys
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, collect_data_files
@@ -52,13 +53,15 @@ if sys.platform.startswith("linux"):
     _SYSTEM = ("libstdc++.so", "libgcc_s.so", "libGL.so", "libGLX", "libEGL", "libGLdispatch", "libOpenGL.so",
                "libgbm.so", "libdrm", "libwayland-")
     a.binaries = [b for b in a.binaries if not os.path.basename(b[0]).startswith(_SYSTEM)]
+VERSION = re.search(r'__version__ = "([^"]+)"', (ROOT / "lazy_mixtape_maker" / "__init__.py").read_text()).group(1)
 pyz = PYZ(a.pure)
 icon = str(ROOT / "packaging" / ("icon.ico" if sys.platform == "win32" else "icon.icns"))
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="LazyMixtapeMaker", console=False,
           icon=icon if sys.platform in ("win32", "darwin") else None)
 coll = COLLECT(exe, a.binaries, a.datas, name="LazyMixtapeMaker")
 if sys.platform == "darwin":
-    app = BUNDLE(coll, name="Lazy Mixtape Maker.app", icon=icon, bundle_identifier="app.lazymixtapemaker",
-                 info_plist={"NSHighResolutionCapable": True, "CFBundleDocumentTypes": [
+    app = BUNDLE(coll, name="Lazy Mixtape Maker.app", icon=icon, bundle_identifier="app.lazymixtapemaker", version=VERSION,
+                 info_plist={"NSHighResolutionCapable": True, "CFBundleShortVersionString": VERSION, "CFBundleVersion": VERSION,
+                             "CFBundleDocumentTypes": [
                      {"CFBundleTypeName": "Lazy Mixtape session", "CFBundleTypeExtensions": ["lmm"], "CFBundleTypeRole": "Editor"},
                      {"CFBundleTypeName": "Lazy Mixtape visualization", "CFBundleTypeExtensions": ["lmv"], "CFBundleTypeRole": "Editor"}]})

@@ -163,3 +163,11 @@ def test_update_keeps_the_kind_of_download(monkeypatch):
     monkeypatch.setattr(_buildinfo, "VARIANT", "", raising=False)
     up = updater.parse_release(release(assets=[updater.platform_asset_name(""), updater.platform_asset_name("stems")]))
     assert up.asset_name == updater.platform_asset_name("")
+
+
+def test_version_is_the_same_everywhere():
+    import re
+    from lazy_mixtape_maker import __version__
+    root = Path(__file__).resolve().parent.parent
+    assert re.search(r'^version = "([^"]+)"', (root / "pyproject.toml").read_text(), re.M).group(1) == __version__
+    assert updater.parse_tag("v" + __version__) == ("v", tuple(int(x) for x in __version__.split(".")))

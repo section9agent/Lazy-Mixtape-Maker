@@ -1,3 +1,5 @@
+# Lazy Mixtape Maker 2.0.0
+
 ## What's new
 
 ### Deep analysis (All-In-One)
