@@ -46,6 +46,11 @@ def test_version_comparison():
     assert n("v1.0.0", "2026-11-10T10:00:00Z", "build-40", "2026-11-01T10:00:00Z")      # mixed: by date
     assert not n("v1.0.0", "2026-11-01T10:00:30Z", "build-40", "2026-11-01T10:00:00Z")   # its own release, minutes later
     assert not n("build-99", "2026-11-10T10:00:00Z", "dev", "")                          # source runs don't nag
+    # renumbered versions: V5.4 was published before this 2.0.0 build was made, so it is not an update ...
+    assert not n("V5.4", "2026-11-10T00:26:33Z", "v2.0.0", "2026-11-19T03:18:42Z")
+    # ... but a higher number published after it is
+    assert n("v2.0.1", "2026-11-25T10:00:00Z", "v2.0.0", "2026-11-19T03:18:42Z")
+    assert n("v2.1.0", "", "v2.0.0", "")
 
 
 def test_release_parsing_and_check(monkeypatch):
@@ -117,6 +122,7 @@ def test_unsafe_archives_are_refused(tmp_path):
 
 
 def test_off_switch(app, monkeypatch):
+    monkeypatch.delenv("LMM_NO_UPDATE_CHECK", raising=False)
     monkeypatch.setattr(updater, "current", lambda: ("build-40", ""))
     assert updater.enabled() and updater.due()
     updater.set_enabled(False)

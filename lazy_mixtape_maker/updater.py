@@ -78,11 +78,15 @@ def is_newer(tag: str, published: str, cur_tag: str | None = None, cur_built: st
     if tag == cur_tag:
         return False
     a, b = parse_tag(tag), parse_tag(cur_tag)
+    pub, built = _when(published), _when(cur_built or "")
     if a and b and a[0] == b[0]:
-        return a[1] > b[1]
+        if a[1] <= b[1]:
+            return False
+        # a higher number published *before* this build was made is an old release that happened to be numbered
+        # higher (versions were renumbered), never an update
+        return not (pub and built and (built - pub).total_seconds() > 3600)
     if cur_tag == "dev":                                   # run from source: nothing to compare with
         return False
-    pub, built = _when(published), _when(cur_built or "")
     if pub and built:
         return (pub - built).total_seconds() > 3600       # published clearly after this build was made
     return False
@@ -267,7 +271,11 @@ def set_enabled(on: bool) -> None:
 
 def due() -> bool:
     """Is an automatic start-up check allowed now (switched on, and not checked a moment ago)?"""
+    import os
+
     from . import prefs
+    if os.environ.get("LMM_NO_UPDATE_CHECK"):
+        return False
     if not enabled() or current()[0] == "dev":              # never on its own when run from source
         return False
     return time.time() - float(prefs.get("last_update_check") or 0) > CHECK_EVERY

@@ -1,3 +1,7 @@
+import os
+
+os.environ["LMM_NO_UPDATE_CHECK"] = "1"      # tests never look for updates on GitHub
+
 import pytest
 
 
