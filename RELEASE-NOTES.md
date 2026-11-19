@@ -1,4 +1,4 @@
-# Lazy Mixtape Maker 2.0.0
+# Lazy Mixtape Maker 6.0
 
 ## What's new
 

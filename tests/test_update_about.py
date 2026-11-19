@@ -176,4 +176,6 @@ def test_version_is_the_same_everywhere():
     from lazy_mixtape_maker import __version__
     root = Path(__file__).resolve().parent.parent
     assert re.search(r'^version = "([^"]+)"', (root / "pyproject.toml").read_text(), re.M).group(1) == __version__
-    assert updater.parse_tag("v" + __version__) == ("v", tuple(int(x) for x in __version__.split(".")))
+    nums = [int(x) for x in __version__.split(".")]
+    assert updater.parse_tag("v" + __version__) == ("v", tuple((nums + [0, 0])[:3]))
+    assert updater.is_newer("v" + __version__, "", "V5.4", "")             # 6.0 follows the published 5.4
