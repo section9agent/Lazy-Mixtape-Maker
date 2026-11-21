@@ -11,13 +11,14 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDialogButtonBo
                                QVBoxLayout, QWidget)
 
 from ..video import AudioTexture
-from ..visuals import Shader, ShaderLibrary, shader_to_json
+from ..visuals import Shader, ShaderError, ShaderLibrary, shader_to_json
 from .dialogs import AddVisualDialog, EditShaderDialog
 from ..remix import reacts_to_audio
 from .remix_studio import RemixStudio
 from .workers import FrameWorker
 
 ENERGY = (("calm", "Calm"), ("mid", "Medium"), ("high", "Intense"))
+KINDS = (("all", "All visuals"), ("shadertoy", "Shadertoy"), ("milkdrop", "MilkDrop"))
 ORIGINS = {"builtin": "Built in", "pasted": "Pasted code", "file": "Imported file", "shadertoy-json": "Shadertoy JSON",
            "shadertoy-api": "Shadertoy link", "remix": "Remix"}
 
@@ -47,6 +48,52 @@ class CodeDialog(QDialog):
         lay.addWidget(bb)
 
 
+class MilkPresetDialog(QDialog):
+    """View a MilkDrop preset's text, and for your own presets, rename and edit it."""
+
+    def __init__(self, shaders: ShaderLibrary, sh: Shader, parent=None):
+        super().__init__(parent)
+        self.shaders, self.sh = shaders, sh
+        self.saved = False
+        self.setWindowTitle(f"{'View' if sh.builtin else 'View / Edit'} preset — {sh.name}")
+        self.resize(780, 640)
+        lay = QVBoxLayout(self)
+        nrow = QHBoxLayout()
+        nrow.addWidget(QLabel("Name"))
+        self.name = QLineEdit(sh.name)
+        self.name.setReadOnly(sh.builtin)
+        nrow.addWidget(self.name, 1)
+        lay.addLayout(nrow)
+        self.text = QPlainTextEdit(sh.source)
+        self.text.setReadOnly(sh.builtin)
+        self.text.setStyleSheet("font-family: monospace")
+        self.text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        lay.addWidget(self.text, 1)
+        self.msg = QLabel()
+        self.msg.setWordWrap(True)
+        self.msg.setStyleSheet("color:#ff6b6b")
+        lay.addWidget(self.msg)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bb.button(QDialogButtonBox.StandardButton.Close).clicked.connect(self.reject)
+        if not sh.builtin:
+            b = bb.addButton("Save changes", QDialogButtonBox.ButtonRole.AcceptRole)
+            b.clicked.connect(self._save)
+        lay.addWidget(bb)
+
+    def _save(self):
+        try:
+            if self.text.toPlainText() != self.sh.source:
+                self.shaders.update_code(self.sh.id, self.text.toPlainText())
+            new = self.name.text().strip()
+            if new and new != self.sh.name:
+                self.shaders.rename(self.sh.id, new)
+        except (ShaderError, ValueError, OSError) as e:
+            self.msg.setText(f"Not saved:\n{e}")
+            return
+        self.saved = True
+        self.accept()
+
+
 class ShaderManager(QWidget):
     """List of every visual with a live, animated preview and the tools to look after them."""
     changed = Signal()                 # something was added, removed or renamed
@@ -65,15 +112,25 @@ class ShaderManager(QWidget):
         lay = QHBoxLayout(self)
         left = QVBoxLayout()
         left.addWidget(QLabel("<b>Shader library</b> — stored on this computer, works offline"))
+        krow = QHBoxLayout()
+        krow.addWidget(QLabel("Show"))
+        self.kind = QComboBox()
+        for k, v in KINDS:
+            self.kind.addItem(v, k)
+        self.kind.setToolTip("Shadertoy shaders, MilkDrop presets, or both.")
+        krow.addWidget(self.kind, 1)
+        left.addLayout(krow)
         self.list = QListWidget()
         self.list.setIconSize(QSize(96, 54))
         self.list.setSpacing(2)
         left.addWidget(self.list, 1)
         row = QHBoxLayout()
         self.b_add = QPushButton("Add from Shadertoy…")
+        self.b_milk = QPushButton("Add MilkDrop…")
+        self.b_milk.setToolTip("Browse the MilkDrop preset pack, or import .milk files.")
         self.b_remove = QPushButton("Remove")
         self.b_export = QPushButton("Export…")
-        for b in (self.b_add, self.b_export, self.b_remove):
+        for b in (self.b_add, self.b_milk, self.b_export, self.b_remove):
             row.addWidget(b)
         left.addLayout(row)
         row2 = QHBoxLayout()
@@ -136,6 +193,8 @@ class ShaderManager(QWidget):
         self.timer.timeout.connect(self._tick)
         self.list.currentItemChanged.connect(lambda *_: self._select())
         self.b_add.clicked.connect(self.add)
+        self.b_milk.clicked.connect(self.add_milk)
+        self.kind.currentIndexChanged.connect(lambda _: self.rebuild())
         self.b_remove.clicked.connect(self.remove)
         self.b_export.clicked.connect(self.export)
         self.b_code.clicked.connect(self.view_code)
@@ -161,9 +220,13 @@ class ShaderManager(QWidget):
         keep = keep or (self.current().id if self.current() else None)
         self._busy = True
         self.list.clear()
+        want = self.kind.currentData()
         for sh in self.shaders.all():
+            if want in ("shadertoy", "milkdrop") and sh.is_milk != (want == "milkdrop"):
+                continue
             tag = dict(ENERGY).get(sh.energy, "")
-            it = QListWidgetItem(f"{sh.name}{' ⚠' if sh.warnings else ''}\n{ORIGINS.get(sh.origin, sh.origin)}"
+            it = QListWidgetItem(f"{sh.name}{' ⚠' if sh.warnings else ''}\n{'MilkDrop · ' if sh.is_milk else ''}"
+                                 f"{ORIGINS.get(sh.origin, sh.origin)}"
                                  f"{' · ' + sh.author if sh.author else ''} · {tag}"
                                  f"{' · ♪ reacts to music' if reacts_to_audio(sh) else ' · static'}")
             it.setData(Qt.ItemDataRole.UserRole, sh.id)
@@ -192,10 +255,16 @@ class ShaderManager(QWidget):
         self.b_remove.setEnabled(bool(sh) and not sh.builtin)
         for b in (self.b_export, self.b_code, self.b_use, self.b_restart, self.b_play, self.b_remix):
             b.setEnabled(bool(sh))
+        self.b_remix.setEnabled(bool(sh) and not sh.is_milk)
+        self.b_remix.setToolTip("MilkDrop presets already react to the music." if sh and sh.is_milk else
+                                "Shader Remix Studio: make this visual react to the music (zoom, flash, colour, shake…).")
+        self.b_code.setText("View/Edit Preset" if sh and sh.is_milk else "View/Edit Code")
         if sh:
             self.name.setText(sh.name)
             self.energy.setCurrentIndex(max(0, self.energy.findData(sh.energy)))
             bits = [ORIGINS.get(sh.origin, sh.origin)]
+            if sh.is_milk:
+                bits.insert(0, "MilkDrop preset" + (f" ({sh.category})" if sh.category else ""))
             if sh.author:
                 bits.append(f"by {sh.author}")
             if sh.passes:
@@ -231,6 +300,17 @@ class ShaderManager(QWidget):
                 notes.append(self.shaders.media_instructions(dlg.added.id))
             if notes:
                 QMessageBox.information(self, "Lazy Mixtape Maker", "Added, with a note:\n\n" + "\n\n".join(notes))
+
+    def add_milk(self):
+        from .milk_browser import MilkBrowser
+        dlg = MilkBrowser(self.shaders, self)
+        dlg.exec()
+        if dlg.added:
+            want = self.kind.currentData()
+            if want == "shadertoy":
+                self.kind.setCurrentIndex(self.kind.findData("all"))
+            self.rebuild(dlg.added[-1].id)
+            self.changed.emit()
 
     def remix(self):
         sh = self.current()
@@ -284,6 +364,17 @@ class ShaderManager(QWidget):
         if not sh:
             return
         d = str(QSettings().value("last_export_dir", ""))
+        if sh.is_milk:
+            path, _ = QFileDialog.getSaveFileName(self, "Export preset", str(Path(d) / (sh.name.replace("/", "-") + ".milk")),
+                                                  "MilkDrop preset (*.milk)")
+            if path:
+                Path(path).write_text(sh.source, encoding="utf-8")
+                folder = self.shaders.milk_files(sh)
+                for name, f in folder.items():             # its own pictures go beside it
+                    dst = Path(path).parent / name
+                    if not dst.exists():
+                        dst.write_bytes(f.read_bytes())
+            return
         multi = bool(sh.passes)
         flt = "Shadertoy JSON (*.json)" if multi else "Shader code (*.glsl);;Shadertoy JSON (*.json)"
         path, chosen = QFileDialog.getSaveFileName(self, "Export visual", str(Path(d) / (sh.name.replace("/", "-") + (".json" if multi else ".glsl"))), flt)
@@ -299,7 +390,7 @@ class ShaderManager(QWidget):
         sh = self.current()
         if not sh:
             return
-        dlg = EditShaderDialog(self.shaders, sh, self)
+        dlg = (MilkPresetDialog if sh.is_milk else EditShaderDialog)(self.shaders, sh, self)
         dlg.exec()
         if dlg.saved:
             self.thumbs.forget(sh.id)

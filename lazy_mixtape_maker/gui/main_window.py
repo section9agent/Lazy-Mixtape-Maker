@@ -181,6 +181,7 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         self.timeline.seek.connect(self._seek)
         self.cue.export_clicked.connect(self.export_cue)
         self.visuals.add_clicked.connect(self.add_visual)
+        self.visuals.add_milk_clicked.connect(self.add_milk)
         self.library.changed.connect(lambda: (s.library_changed.emit(), s.changed.emit()))
         self.library.use_clicked.connect(self._use_for_all)
 
@@ -739,6 +740,14 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
             self.bottom.setCurrentWidget(self.visuals)
             if dlg.added.warnings:
                 QMessageBox.information(self, APP, "Added, with a note:\n\n" + "\n".join(dlg.added.warnings))
+
+    def add_milk(self):
+        from .milk_browser import MilkBrowser
+        dlg = MilkBrowser(self.state.shaders, self)
+        dlg.exec()
+        if dlg.added:
+            self.state.library_changed.emit()
+            self.bottom.setCurrentWidget(self.visuals)
 
     # ----------------------------------------------------------------- sessions
     def _maybe_save(self) -> bool:

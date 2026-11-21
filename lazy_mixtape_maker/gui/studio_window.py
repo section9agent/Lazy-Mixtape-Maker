@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComb
 
 from .. import audio_io, prefs, studio as st
 from ..video import MODE_LABELS, MODES, FrameComposer
-from ..visuals import ShaderLibrary, make_context
+from ..visuals import ShaderLibrary, make_context, visual_label
 from . import theme
 from .panels import ThumbCache, fmt_time
 from .player import AudioPlayer
@@ -843,7 +843,7 @@ class StudioWindow(TaskMixin, QMainWindow):
         if st.has_source_video(self.project):
             c.addItem("▶ The file's own video", "@video")
         for sh in self.shaders.all():
-            c.addItem(sh.name, sh.id)
+            c.addItem(visual_label(sh), sh.id)
         c.blockSignals(False)
 
     def _add_video(self):
@@ -1015,7 +1015,7 @@ class StudioWindow(TaskMixin, QMainWindow):
             if rebuild_lists:
                 self.single.clear()
                 for sh in self.shaders.all():
-                    self.single.addItem(sh.name, sh.id)
+                    self.single.addItem(visual_label(sh), sh.id)
                 self.library.rebuild()
             if m:
                 first_marker = bool(p.markers) and p.markers[0].uid == m.uid

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QSpinBox, QVBoxLayout)
 
 from ..video import MODE_LABELS, MODES
+from ..visuals import VISUAL_SOURCES, visual_label
 from .transition_editor import TransitionEditor
 
 SIZES = (("1280 × 720 (HD)", (1280, 720)), ("1920 × 1080 (Full HD)", (1920, 1080)), ("854 × 480", (854, 480)),
@@ -25,8 +26,13 @@ class StudioSettingsDialog(QDialog):
         self.mode.setCurrentIndex(max(0, self.mode.findData(video.mode)))
         self.single = QComboBox()
         for sh in shaders.all():
-            self.single.addItem(sh.name, sh.id)
+            self.single.addItem(visual_label(sh), sh.id)
         self.single.setCurrentIndex(max(0, self.single.findData(video.single_shader)))
+        self.source = QComboBox()
+        for k, v in VISUAL_SOURCES:
+            self.source.addItem(v, k)
+        self.source.setCurrentIndex(max(0, self.source.findData(getattr(video, "visual_source", "all"))))
+        self.source.setToolTip("Which visuals the app's own picks use.")
         self.blend = QDoubleSpinBox(); self.blend.setRange(0.5, 60); self.blend.setSingleStep(0.5); self.blend.setSuffix(" s")
         self.blend.setValue(video.blend)
         self.res = QComboBox()                                  # (not "size": that is a QWidget method)
@@ -46,6 +52,7 @@ class StudioSettingsDialog(QDialog):
         self.use_video.setEnabled(has_source_video)
         form.addRow("Visuals", self.mode)
         form.addRow("The one visual", self.single)
+        form.addRow("The app picks from", self.source)
         form.addRow("Visual blend", self.blend)
         form.addRow("Size", self.res)
         form.addRow("Frame rate", self.fps)
@@ -66,6 +73,7 @@ class StudioSettingsDialog(QDialog):
 
     def _sync(self):
         self.single.setEnabled(self.mode.currentData() == "single")
+        self.source.setEnabled(self.mode.currentData() in ("auto", "random"))
 
     def changes(self) -> dict:
         """Only what is different from the project's current settings."""
@@ -73,5 +81,6 @@ class StudioSettingsDialog(QDialog):
         new = {"mode": self.mode.currentData(), "single_shader": self.single.currentData(), "blend": self.blend.value(),
                "width": w, "height": h, "fps": self.fps.currentData(), "crf": self.crf.value(),
                "show_overlay": self.overlay.isChecked(), "use_video": self.use_video.isChecked(),
-               "transition": self.trans.value()}
+               "transition": self.trans.value(),
+               "visual_source": self.source.currentData()}
         return {k: val for k, val in new.items() if getattr(self.v, k) != val}

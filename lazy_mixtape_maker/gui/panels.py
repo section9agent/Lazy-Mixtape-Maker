@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ..audio_io import SR, is_video_file
 from ..video import MODE_LABELS, MODES, resolve_assignments
+from ..visuals import VISUAL_SOURCES, visual_label
 from .state import AppState
 from .workers import ThumbWorker
 
@@ -558,7 +559,7 @@ class TrackVisualTab(_Tab):
         if path and is_video_file(path):
             self.combo.addItem("▶ This song's own video", "@video")
         for sh in self.state.shaders.all():
-            self.combo.addItem(sh.name, sh.id)
+            self.combo.addItem(visual_label(sh), sh.id)
         self.combo.blockSignals(False)
         if t is None:
             self.head.setText("Select a song to choose its visual")
@@ -688,6 +689,7 @@ class CuePanel(QWidget):
 # ================================================================ visuals library
 class VisualsPanel(QWidget):
     add_clicked = Signal()
+    add_milk_clicked = Signal()
 
     def __init__(self, state: AppState, thumbs: ThumbCache):
         super().__init__()
@@ -699,8 +701,10 @@ class VisualsPanel(QWidget):
         row.addWidget(QLabel("<b>Visuals</b> — saved on this computer, ready to use offline"))
         row.addStretch(1)
         self.b_add = QPushButton("Add from Shadertoy…")
+        self.b_milk = QPushButton("Add MilkDrop…")
+        self.b_milk.setToolTip("Browse the MilkDrop preset pack, or import .milk files.")
         self.b_remove = QPushButton("Remove")
-        row.addWidget(self.b_add); row.addWidget(self.b_remove)
+        row.addWidget(self.b_add); row.addWidget(self.b_milk); row.addWidget(self.b_remove)
         left.addLayout(row)
         self.list = QListWidget()
         self.list.setViewMode(QListWidget.ViewMode.IconMode)
@@ -727,6 +731,14 @@ class VisualsPanel(QWidget):
         form.addWidget(self.single)
         self.reroll = QPushButton("Pick different random visuals")
         form.addWidget(self.reroll)
+        srow = QHBoxLayout()
+        srow.addWidget(QLabel("The app picks from:"))
+        self.source = QComboBox()
+        for k, v in VISUAL_SOURCES:
+            self.source.addItem(v, k)
+        self.source.setToolTip("Which visuals “Let the app choose” and “Random” use. You can still give any song any visual.")
+        srow.addWidget(self.source, 1)
+        form.addLayout(srow)
         f2 = QFormLayout()
         self.res = QComboBox()
         for label, wh in (("1280 × 720 (HD)", (1280, 720)), ("1920 × 1080 (Full HD)", (1920, 1080)),
@@ -744,6 +756,9 @@ class VisualsPanel(QWidget):
         lay.addWidget(box, 2)
 
         self.b_add.clicked.connect(self.add_clicked)
+        self.b_milk.clicked.connect(self.add_milk_clicked)
+        self.source.currentIndexChanged.connect(
+            lambda _: None if self._busy else self.state.edit_video(lambda v: setattr(v, "visual_source", self.source.currentData())))
         self.b_remove.clicked.connect(self._remove)
         self.group.buttonToggled.connect(self._mode)
         self.single.currentIndexChanged.connect(self._single)
@@ -761,7 +776,7 @@ class VisualsPanel(QWidget):
         self.list.clear()
         self.single.clear()
         for sh in self.state.shaders.all():
-            it = QListWidgetItem(sh.name + (" ⚠" if sh.warnings else ""), self.list)
+            it = QListWidgetItem(visual_label(sh) + (" ⚠" if sh.warnings else ""), self.list)
             it.setData(Qt.ItemDataRole.UserRole, sh.id)
             tip = [f"{sh.name}" + (f" by {sh.author}" if sh.author else "")]
             tip += sh.warnings
@@ -771,7 +786,7 @@ class VisualsPanel(QWidget):
             pm = self.thumbs.get(sh)
             if pm:
                 it.setIcon(QIcon(pm))
-            self.single.addItem(sh.name, sh.id)
+            self.single.addItem(visual_label(sh), sh.id)
         self._busy = False
         self.refresh()
 
@@ -790,6 +805,8 @@ class VisualsPanel(QWidget):
         self.single.setCurrentIndex(max(0, self.single.findData(v.single_shader)))
         self.single.setEnabled(v.mode == "single")
         self.reroll.setEnabled(v.mode == "random")
+        self.source.setCurrentIndex(max(0, self.source.findData(getattr(v, "visual_source", "all"))))
+        self.source.setEnabled(v.mode in ("auto", "random"))
         self.res.setCurrentIndex(max(0, self.res.findData(f"{v.width}x{v.height}")))
         self.fps.setCurrentIndex(max(0, self.fps.findData(v.fps)))
         self.overlay.setChecked(v.show_overlay)
