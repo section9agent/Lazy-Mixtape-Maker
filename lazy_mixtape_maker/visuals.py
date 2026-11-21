@@ -22,6 +22,8 @@ import shutil
 
 import numpy as np
 
+from . import milkdrop
+
 # ------------------------------------------------------------------ data location
 def data_dir() -> Path:
     env = os.environ.get("LMM_DATA_DIR")
@@ -64,6 +66,17 @@ def media_path(name: str) -> Path | None:
             continue
     p = media_dir() / base
     return p if p.is_file() else None
+
+
+def folder_of(sid: str) -> Path | None:
+    """The folder holding a saved visual's own files (a MilkDrop preset's pictures, a shader's textures)."""
+    for f in sorted({Path(x) for x in _LIB_FOLDERS} | {data_dir() / "shaders"}):
+        try:
+            for j in f.glob(f"*/{sid}.json"):
+                return j.parent
+        except OSError:
+            continue
+    return None
 
 
 def valid_kind(k) -> bool:
@@ -118,6 +131,12 @@ class Shader:
     passes: list[dict] = field(default_factory=list)
     # Set on remixes (see remix.py): {"base": {"name", "source", "passes"}, "spec": {...}} so the remix can be re-tuned.
     remix: dict = field(default_factory=dict)
+    kind: str = "shadertoy"         # shadertoy | milkdrop (source is then the .milk preset text)
+    category: str = ""              # MilkDrop: the pack category it came from
+
+    @property
+    def is_milk(self) -> bool:
+        return self.kind == "milkdrop"
 
     @property
     def builtin(self) -> bool:
@@ -250,8 +269,10 @@ def compile_program(ctx, source: str, buffer: bool = False, common: str = ""):
         raise ShaderError(msg[:1500]) from None
 
 
-def validate(source: str, passes: list[dict] | None = None) -> str | None:
-    """None if the shader compiles, otherwise the compiler message."""
+def validate(source: str, passes: list[dict] | None = None, kind: str = "shadertoy") -> str | None:
+    """None if the shader compiles (or the MilkDrop preset reads), otherwise what's wrong."""
+    if kind == "milkdrop":
+        return None if milkdrop.looks_like_preset(source) else "That doesn't look like a MilkDrop preset (.milk)."
     if "mainImage" not in source:
         return "No mainImage function found - paste the Shadertoy 'Image' code."
     ctx = None
@@ -505,21 +526,25 @@ class ShaderLibrary:
                     continue
 
     def all(self) -> list[Shader]:
-        return list(BUILTIN.values()) + sorted(self._user.values(), key=lambda s: s.added)
+        milk = list(milk_builtins().values()) if milkdrop.available() else []
+        return list(BUILTIN.values()) + milk + sorted(self._user.values(), key=lambda s: s.added)
 
     def get(self, sid: str) -> Shader | None:
+        if sid and sid.startswith("milk:"):
+            return milk_builtins().get(sid)
         return BUILTIN.get(sid) or self._user.get(sid)
 
     # -- writing
     def add(self, name: str, source: str, *, author: str = "", origin: str = "pasted", url: str = "",
             warnings: list[str] | None = None, energy: str = "mid", check: bool = True,
-            passes: list[dict] | None = None, remix: dict | None = None) -> Shader:
+            passes: list[dict] | None = None, remix: dict | None = None, kind: str = "shadertoy",
+            category: str = "") -> Shader:
         if check:
-            err = validate(source, passes)
+            err = validate(source, passes, kind)
             if err:
                 raise ShaderError(err)
         for ex in self._user.values():  # same code twice -> reuse (the newest explicit name wins)
-            if ex.source.strip() == source.strip() and ex.passes == (passes or []):
+            if ex.kind == kind and ex.source.strip() == source.strip() and ex.passes == (passes or []):
                 nm = (name or "").strip()[:80]
                 if nm and nm != "Imported shader" and nm != ex.name:
                     ex.name = nm
@@ -527,7 +552,8 @@ class ShaderLibrary:
                 return ex
         sh = Shader(id=uuid.uuid4().hex[:10], name=(name or "Imported shader").strip()[:80], source=source,
                     author=author, origin=origin, url=url, energy=energy, warnings=warnings or [],
-                    added=time.strftime("%Y-%m-%dT%H:%M:%S"), passes=passes or [], remix=remix or {})
+                    added=time.strftime("%Y-%m-%dT%H:%M:%S"), passes=passes or [], remix=remix or {}, kind=kind,
+                    category=category)
         self._save(sh)
         return sh
 
@@ -567,10 +593,12 @@ class ShaderLibrary:
         return f.parent if f is not None and f.parent != self.folder else None
 
     def add_from_text(self, text: str, name: str = "") -> Shader:
-        """Accepts raw Shadertoy code or Shadertoy JSON."""
+        """Accepts raw Shadertoy code, Shadertoy JSON or MilkDrop preset text."""
         t = text.strip()
         if not t:
             raise ValueError("Nothing to import.")
+        if milkdrop.looks_like_preset(t):
+            return self.add_milk(t + "\n", name=name)
         if t[0] in "{[":
             n, author, code, warns, passes = parse_shadertoy_json(t)
             sh = self.add(name or n, code, author=author, origin="shadertoy-json", warnings=warns, passes=passes)
@@ -585,8 +613,56 @@ class ShaderLibrary:
     def add_from_file(self, path) -> Shader:
         p = Path(path)
         text = p.read_text(encoding="utf-8", errors="replace")
+        if p.suffix.lower() == ".milk" or milkdrop.looks_like_preset(text):
+            return self.add_milk(p)
         sh = self.add_from_text(text, name=p.stem)
         return sh
+
+    def add_milk(self, path_or_text, name: str = "", energy: str | None = None) -> Shader:
+        """A MilkDrop preset, from a .milk file (the pictures it uses that sit beside it come too) or its text."""
+        p = None
+        if isinstance(path_or_text, Path) or (isinstance(path_or_text, str) and "\n" not in path_or_text
+                                              and path_or_text.lower().endswith(".milk")):
+            p = Path(path_or_text)
+            text = p.read_text(encoding="utf-8", errors="replace")
+        else:
+            text = str(path_or_text)
+        if not milkdrop.looks_like_preset(text):
+            raise ShaderError("That doesn't look like a MilkDrop preset (.milk).")
+        cat = milkdrop.category_of(p) if p else ""
+        sh = self.add(name or (milkdrop.preset_name(p) if p else "MilkDrop preset"), text,
+                      origin="file" if p else "pasted", energy=energy or milkdrop.energy_for(cat), check=False,
+                      kind="milkdrop", category=cat)
+        if p is not None:                     # its own textures, when they're beside it
+            want = milkdrop.referenced_textures(text)
+            files = [f for f in p.parent.iterdir() if f.is_file() and f.suffix.lower() in milkdrop.TEX_EXT
+                     and f.stem.lower() in want] if want else []
+            self._attach_files(sh, {f.name: f.read_bytes() for f in files})
+        return sh
+
+    def milk_files(self, sh: Shader) -> dict[str, Path]:
+        """The picture files a user's MilkDrop preset keeps in its own folder (they travel with sessions and backups)."""
+        f = self._where.get(sh.id)
+        if not sh.is_milk or f is None or f.parent == self.folder:
+            return {}
+        return {x.name: x for x in f.parent.iterdir() if x.is_file() and x.suffix.lower() in milkdrop.TEX_EXT}
+
+    def _attach_files(self, sh: Shader, files: dict[str, bytes]) -> None:
+        """Keep these files beside the visual (giving it a folder of its own when it hasn't one)."""
+        if not files or sh.id not in self._where:
+            return
+        cur = self._where[sh.id]
+        folder = cur.parent if cur.parent != self.folder else self._new_folder(sh)
+        folder.mkdir(parents=True, exist_ok=True)
+        for name, data in files.items():
+            dst = folder / Path(name).name
+            if not dst.exists():
+                dst.write_bytes(data)
+        target = folder / f"{sh.id}.json"
+        target.write_text(json.dumps(sh.to_dict(), indent=1), encoding="utf-8")
+        if cur.exists() and cur != target:
+            cur.unlink()
+        self._where[sh.id] = target
 
     def add_from_shadertoy(self, url_or_id: str, api_key: str = "") -> Shader:
         name, author, code, warns, url, passes = fetch_from_shadertoy(url_or_id, api_key)
@@ -656,6 +732,13 @@ class ShaderLibrary:
         sh = self._user.get(sid)
         if sh is None:
             raise ValueError("Built-in visuals can't be edited.")
+        if sh.is_milk:
+            err = validate(source, None, "milkdrop")
+            if err:
+                raise ShaderError(err)
+            sh.source = source
+            self._save(sh)
+            return sh
         passes = [dict(p) for p in (passes or [])]
         if passes:
             img = next((p for p in reversed(passes) if p.get("type") == "image"), None)
@@ -768,6 +851,9 @@ class ShaderLibrary:
                 f = media_path(name)
                 if f and name not in media:
                     media[name] = base64.b64encode(f.read_bytes()).decode()
+            mf = self.milk_files(sh)
+            if mf:
+                shaders[-1]["_milk_files"] = {n: base64.b64encode(f.read_bytes()).decode() for n, f in mf.items()}
         Path(path).write_text(json.dumps({"lmm_shader_backup": 1, "shaders": shaders, "media": media}), encoding="utf-8")
         return len(shaders)
 
@@ -789,18 +875,19 @@ class ShaderLibrary:
                 sh = Shader.from_dict(sd)
             except Exception:  # noqa: BLE001
                 continue
-            if sh.id in BUILTIN or sh.id in self._user or any(
-                    e.source.strip() == sh.source.strip()
+            if sh.id in BUILTIN or sh.id.startswith("milk:") or sh.id in self._user or any(
+                    e.kind == sh.kind and e.source.strip() == sh.source.strip()
                     and e.passes == sh.passes
                     for e in self._user.values()):
                 have += 1
                 continue
             self._save(sh)
+            self._attach_files(sh, {n: base64.b64decode(b) for n, b in (sd.get("_milk_files") or {}).items()})
             added += 1
         return added, have
 
     def remove(self, sid: str) -> None:
-        if sid in BUILTIN:
+        if sid in BUILTIN or sid.startswith("milk:"):
             raise ValueError("Built-in visuals can't be removed.")
         self._user.pop(sid, None)
         f = self._where.pop(sid, None)
@@ -824,13 +911,17 @@ class ShaderLibrary:
                         med[name] = base64.b64encode(f.read_bytes()).decode()
                 if med:
                     out[sid]["_media"] = med
+                mf = self.milk_files(sh)
+                if mf:
+                    out[sid]["_milk_files"] = {n: base64.b64encode(f.read_bytes()).decode() for n, f in mf.items()
+                                               if f.stat().st_size < (20 << 20)}
         return out
 
     def import_embedded(self, embedded: dict[str, dict]) -> None:
         """Add shaders that came inside a session file (keeping their ids so the
         session's assignments still line up). Existing ids are left alone."""
         for sid, d in (embedded or {}).items():
-            if sid in BUILTIN or sid in self._user:
+            if sid in BUILTIN or sid.startswith("milk:") or sid in self._user:
                 continue
             try:
                 import base64
@@ -839,7 +930,9 @@ class ShaderLibrary:
                     if not f.exists():
                         media_dir().mkdir(parents=True, exist_ok=True)
                         f.write_bytes(base64.b64decode(b))
-                self._save(Shader.from_dict({**d, "id": sid}))
+                sh = Shader.from_dict({**d, "id": sid})
+                self._save(sh)
+                self._attach_files(sh, {n: base64.b64decode(b) for n, b in (d.get("_milk_files") or {}).items()})
             except Exception:  # noqa: BLE001
                 continue
 
@@ -1015,3 +1108,33 @@ BUILTIN: dict[str, Shader] = {s.id: s for s in [
     _b("builtin:kaleido", "Kaleido Pulse", "high", _KALEIDO),
     _b("builtin:warp", "Starfield Warp", "high", _WARP),
 ]}
+
+
+# -------------------------------------------------------------------- MilkDrop: the featured set, labels
+_MILK_CACHE: dict = {}
+
+
+def milk_builtins() -> dict[str, Shader]:
+    """The featured MilkDrop presets that come with the app, as visuals ("milk:<name>" ids)."""
+    items = milkdrop.featured()
+    key = tuple(it["id"] for it in items)
+    if _MILK_CACHE.get("key") != key:
+        out = {}
+        for it in items:
+            try:
+                src = Path(it["path"]).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            out[it["id"]] = Shader(id=it["id"], name=it["name"], source=src, author=it.get("author", ""),
+                                   origin="builtin", energy=it.get("energy", "mid"), kind="milkdrop",
+                                   category=it.get("category", ""), added="0")
+        _MILK_CACHE.update(key=key, shaders=out)
+    return _MILK_CACHE["shaders"]
+
+
+VISUAL_SOURCES = [("all", "Shadertoy and MilkDrop"), ("shadertoy", "Shadertoy only"), ("milkdrop", "MilkDrop only")]
+
+
+def visual_label(sh: Shader) -> str:
+    """A visual's name as the lists show it (MilkDrop presets are marked)."""
+    return f"{sh.name}  ◈ MilkDrop" if sh.is_milk else sh.name

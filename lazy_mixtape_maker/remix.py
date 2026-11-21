@@ -72,6 +72,8 @@ def normalize_spec(spec: dict | None) -> dict:
 # ------------------------------------------------------------------ what a shader already does
 def reacts_to_audio(shader) -> bool:
     """True when the shader's picture is driven by the music (its code samples an audio channel)."""
+    if getattr(shader, "is_milk", False):
+        return True                               # MilkDrop presets always react to the music
     if getattr(shader, "builtin", False) and not shader.passes:
         return bool(re.search(r"\biChannel0\b", shader.source))
     if not shader.passes:                         # plain shaders get the music on iChannel0

@@ -48,6 +48,7 @@ class VideoSettings:
     transition: dict = field(default_factory=lambda: TransitionParams().to_dict())    # default for every boundary
     transitions: dict[str, dict] = field(default_factory=dict)   # incoming track / marker uid -> its own settings
     use_video: bool = True           # video files in the mix / studio supply the picture instead of a visual
+    visual_source: str = "all"       # what the app picks from: all | shadertoy | milkdrop
     crf: int = 18                    # x264 quality (lower = better)
     preset: str = "medium"           # x264 speed preset
 
@@ -106,6 +107,9 @@ def pick_visuals(keys: list[str], energies: list[float | None], vs: VideoSetting
     turn before any repeats. 'auto' additionally leans towards visuals whose energy suits the song
     (a gentle weight, not a filter, so it never collapses to two favourites)."""
     pool = [s for s in shaders.all() if not s.warnings or s.builtin] or list(BUILTIN.values())
+    src = getattr(vs, "visual_source", "all")
+    if src in ("shadertoy", "milkdrop"):
+        pool = [s for s in pool if s.is_milk == (src == "milkdrop")] or pool   # none of that kind: use them all
     ids = [s.id for s in pool]
     n = len(keys)
     if not n:
@@ -548,6 +552,7 @@ class GLRenderer:
         self.cards: dict[str, tuple] = {}
         self.last_t = -1.0
         self.warnings: list[str] = []
+        self.milk = None                       # MilkRenderer, made the first time a MilkDrop preset is drawn
 
     # -- shaders
     def instance(self, shader: Shader):
@@ -564,6 +569,18 @@ class GLRenderer:
         return got
 
     def draw_shader(self, shader: Shader, t: float, frame: int, slot: int, audio_t: float | None = None):
+        if shader.is_milk:
+            from .milkdrop import MilkError, MilkRenderer
+            try:
+                if self.milk is None:
+                    self.milk = MilkRenderer(self)
+                self.milk.draw(shader, max(t, 0.0), slot, audio_t)
+                return
+            except MilkError as e:
+                msg = f"MilkDrop preset '{shader.name}' was replaced by a built-in visual: {str(e)[:200]}"
+                if msg not in self.warnings:
+                    self.warnings.append(msg)
+                shader = BUILTIN["builtin:plasma"]
         inst = self.instance(shader)
         inst.draw(max(t, 0.0), slot)
 
@@ -686,6 +703,12 @@ class GLRenderer:
         return self.out.read(components=3)
 
     def release(self):
+        if self.milk is not None:
+            try:
+                self.milk.release()
+            except Exception:  # noqa: BLE001
+                pass
+            self.milk = None
         for v in self.videos.values():
             v.close()
         try:
@@ -699,7 +722,9 @@ def preview_frame(shader: Shader, t: float = 4.0, size=(256, 144), renderer: GLR
     own = renderer is None
     r = renderer or GLRenderer(*size)
     try:
-        if shader.passes:     # feedback buffers need a run-up of frames
+        if shader.is_milk:    # (warms itself up)
+            r.draw_shader(shader, t, int(t * 30), 0)
+        elif shader.passes:   # feedback buffers need a run-up of frames
             n = min(60, max(1, int(t * 15)))
             for k in range(n):
                 tk = t * k / max(1, n - 1)
@@ -811,7 +836,7 @@ class FrameComposer:
         sg = self.segments[i]
         if sg.video and r.draw_video(sg.video, sg.video_time(t), slot, sg.vloop):
             return
-        r.draw_shader(self.shader_of[i], t if self.single else t - self.starts[i], k, slot)
+        r.draw_shader(self.shader_of[i], t if self.single else t - self.starts[i], k, slot, audio_t=t)
 
     def draw(self, r: "GLRenderer", t: float, k: int) -> bytes:
         vs, segs = self.vs, self.segments
