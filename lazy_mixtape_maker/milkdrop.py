@@ -42,7 +42,10 @@ def _repo() -> Path:
 
 
 def assets_dir() -> Path:
-    return Path(__file__).resolve().parent / "assets" / "milkdrop"
+    here = Path(__file__).resolve().parent / "assets" / "milkdrop"
+    if not here.is_dir() and _bundle() and (_bundle() / "assets" / "milkdrop").is_dir():
+        return _bundle() / "assets" / "milkdrop"          # the packaged app keeps assets/ at its top level
+    return here
 
 
 def featured_dir() -> Path:
