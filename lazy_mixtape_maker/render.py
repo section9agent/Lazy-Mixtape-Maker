@@ -38,13 +38,34 @@ def _decode_stem(path, dec_start: float, dec_dur: float, lag: float, af, sr: int
     return y[:, :length]
 
 
-def render_track_audio(path, t, curve, an=None, sr: int = SR, stems: dict | None = None, lag: float = 0.0):
+def render_track_audio(path, t, curve, an=None, sr: int = SR, stems: dict | None = None, lag: float = 0.0,
+                       part: tuple[int, int] | None = None):
     """One song, cut to its bounds, moved to the speed profile `curve` and shifted
     `t.pitch` semitones. Returns exactly curve.total seconds of audio, shape (2, n).
 
     stems: {name: file} to render alongside, stretched in perfect step with the song (so a stem can be
-    subtracted from it); the result is then (audio, {name: audio})."""
+    subtracted from it); the result is then (audio, {name: audio}).
+
+    part: (first, end) output samples - only those are rendered (the rest is silence), for short previews.
+    The speed profile is the song's whole one, so that stretch sounds and lines up exactly as in the full mix."""
     n = max(1, int(round(curve.total * sr)))
+    if part is not None:
+        u0, u1 = max(0, int(part[0])), min(n, int(part[1]))
+        if u1 - u0 < 16:
+            z = np.zeros((2, n), np.float32)
+            return z if stems is None else (z, {k: z.copy() for k in stems})
+        full = n
+        got = render_track_audio(path, _Window(t, float(curve.src_time(u0 / sr)), float(curve.src_time(u1 / sr))),
+                                 _Shifted(curve, u0 / sr, (u1 - u0) / sr), an, sr, stems, lag)
+
+        def place(y):
+            out = np.zeros((y.shape[0], full), np.float32)
+            m = min(u1 - u0, y.shape[1])
+            out[:, u0:u0 + m] = y[:, :m]
+            return out
+        if stems is None:
+            return place(got)
+        return place(got[0]), {k: place(v) for k, v in got[1].items()}
     r = 2.0 ** (t.pitch / 12.0)
     margin = (tempo.WIN + tempo.SEEK + 64) / sr * r + 0.05
     dec_start = max(0.0, t.src_start - margin)
@@ -60,7 +81,7 @@ def render_track_audio(path, t, curve, an=None, sr: int = SR, stems: dict | None
             return y
         return np.ascontiguousarray(y[:2]), {k: np.ascontiguousarray(y[2 + 2 * i: 4 + 2 * i]) for i, k in enumerate(names)}
 
-    flat = t.pitch == 0 and np.allclose(curve.r, 1.0, atol=1e-6)
+    flat = t.pitch == 0 and np.allclose(getattr(curve, "r", 1.0), 1.0, atol=1e-6)
     if flat:                                   # natural speed: no stretching at all
         off = int(round((t.src_start - dec_start) * sr / r))
         y = x[:, off:off + n]
@@ -78,6 +99,29 @@ def render_track_audio(path, t, curve, an=None, sr: int = SR, stems: dict | None
         return (curve.src_time(np.asarray(u) / sr) - dec_start) * sr / r
 
     return result(tempo.time_warp(x, tau, n, anchors, guide=2))
+
+
+class _Window:
+    """A track seen through a window of its source (src_start..src_end narrowed), for render_track_audio(part=)."""
+
+    def __init__(self, t, s0: float, s1: float):
+        self._t, self.src_start, self.src_end = t, max(t.src_start, s0), min(t.src_end, s1)
+
+    def __getattr__(self, k):
+        return getattr(self._t, k)
+
+
+class _Shifted:
+    """The stretch of a speed curve that starts `u0` seconds into it and lasts `dur` seconds."""
+
+    def __init__(self, curve, u0: float, dur: float):
+        self.c, self.u0, self.total, self.r = curve, u0, dur, curve.r
+
+    def src_time(self, u):
+        return self.c.src_time(np.asarray(u, dtype=np.float64) + self.u0)
+
+    def mix_time(self, s):
+        return self.c.mix_time(s) - self.u0
 
 
 # ------------------------------------------------------------------ transitions
@@ -265,7 +309,10 @@ def effective_types(plan: MixPlan, notes: list | None = None) -> dict:
 
 
 def render_mix(plan: MixPlan, lib: dict[str, SongAnalysis], paths: dict[str, str],
-               sr: int = SR, progress=None, notes: list | None = None) -> np.ndarray:
+               sr: int = SR, progress=None, notes: list | None = None,
+               window: tuple[float, float] | None = None) -> np.ndarray:
+    """The whole mix as audio (2, n). With window=(start, end) in seconds, only that stretch of the mix is
+    rendered (and returned): just the songs playing then, and only the parts of them that are heard."""
     missing = sorted({lib[t.song_id].title or t.song_id for t in plan.tracks if t.song_id not in paths})
     if missing:
         raise MissingSongsError("Cannot find these songs: " + ", ".join(missing))
@@ -276,9 +323,20 @@ def render_mix(plan: MixPlan, lib: dict[str, SongAnalysis], paths: dict[str, str
     total = slots[-1].end + tail
     mix = np.zeros((2, total), dtype=np.float32)
     kinds = effective_types(plan, notes)
-    for i, (t, slot) in enumerate(zip(plan.tracks, slots)):
+    w0 = w1 = None
+    if window is not None:
+        w0 = max(0, int(window[0] * sr))
+        w1 = min(total, int(window[1] * sr))
+        if w1 <= w0:
+            raise ValueError("That part of the mix is empty")
+    todo = [i for i, sl in enumerate(slots) if w0 is None or (sl.start < w1 + sr and sl.end + tail > w0 - sr)]
+    for k, i in enumerate(todo):
+        t, slot = plan.tracks[i], slots[i]
         if progress:
-            progress(f"rendering {i + 1}/{len(slots)}", i / len(slots))
+            progress(f"rendering {k + 1}/{len(todo)}", k / len(todo))
+        part = None
+        if w0 is not None:                       # (a second of margin each side for the stretcher)
+            part = (max(0, w0 - slot.start - sr), min(slot.length, w1 - slot.start + sr))
         t_in = kinds.get(id(slot.trans_in)) if slot.trans_in else None
         t_out = kinds.get(id(slot.trans_out)) if slot.trans_out else None
         want = sorted({s for k in (t_in, t_out) if k in STEM_KINDS for s in stems_needed(k)})
@@ -288,9 +346,9 @@ def render_mix(plan: MixPlan, lib: dict[str, SongAnalysis], paths: dict[str, str
             files = stemmod.cached(t.song_id) or {}
             x, st = render_track_audio(paths[t.song_id], t, slot.curve, lib[t.song_id], sr,
                                        stems={s: files[s] for s in want if s in files},
-                                       lag=stemmod.lag(t.song_id, paths[t.song_id]))
+                                       lag=stemmod.lag(t.song_id, paths[t.song_id]), part=part)
         else:
-            x = render_track_audio(paths[t.song_id], t, slot.curve, lib[t.song_id], sr)
+            x = render_track_audio(paths[t.song_id], t, slot.curve, lib[t.song_id], sr, part=part)
         n = x.shape[1]
         if n != slot.length:  # keep slot and audio in lockstep
             x = np.pad(x, ((0, 0), (0, max(0, slot.length - n))))[:, : slot.length]
@@ -308,6 +366,8 @@ def render_mix(plan: MixPlan, lib: dict[str, SongAnalysis], paths: dict[str, str
         mix[:, slot.start:end] += buf[:, : end - slot.start]
     if progress:
         progress("mastering", 0.97)
+    if w0 is not None:
+        return master_limit(mix[:, w0:w1], -1.0, sr)
     # trim silent tail
     nz = np.where(np.abs(mix).max(axis=0) > 1e-4)[0]
     if len(nz):

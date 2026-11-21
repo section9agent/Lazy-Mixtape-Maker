@@ -9,7 +9,7 @@ from pathlib import Path
 import soundfile as sf
 from PySide6.QtCore import QEvent, QSettings, QSize, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPixmap
-from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
+from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
                                QMainWindow, QMessageBox, QProgressDialog, QPushButton, QScrollArea, QSplitter,
                                QTabWidget, QToolBar, QToolButton, QVBoxLayout, QWidget)
 
@@ -17,7 +17,7 @@ from .. import __version__, audio_io, cue as cuemod, plan as planmod, prefs, upd
 from ..audio_io import SR
 from .. import songinfo
 from ..playlist import expand_inputs
-from ..engine import analyze_library, export_both, export_session, transition_preview_plan
+from ..engine import PREVIEW_SCOPES, analyze_library, export_both, export_session, preview_window
 from ..render import MissingSongsError, render_mix
 from ..video import render_video
 from ..visuals import ShaderLibrary, make_context
@@ -87,7 +87,8 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         self.tmp = Path(tempfile.mkdtemp(prefix="lmm_preview_"))
         self._preview_n = 0
         self._player = None
-        self._preview_is_full = False
+        self._preview_is_full = False      # what's loaded plays in step with the timeline
+        self._pv = None                    # the loaded preview: {"scope", "t0", "t1", "rev", "path"}
         self.setAcceptDrops(True)
         self.resize(1360, 860)
         self._build_ui()
@@ -146,6 +147,18 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         bar.setContentsMargins(8, 4, 8, 0)
         self.time_label = QLabel("0:00")
         bar.addWidget(self.time_label)
+        bar.addSpacing(16)
+        bar.addWidget(QLabel("Preview"))
+        self.scope = QComboBox()
+        for k, v in PREVIEW_SCOPES:
+            self.scope.addItem(v, k)
+        self.scope.setToolTip("What Play renders and plays.\n"
+                              "1 transition: the blend nearest the playhead, with a few seconds either side (quickest).\n"
+                              "4 songs: the four songs around the playhead's nearest blend.\n"
+                              "Whole mix: everything, from the playhead.")
+        self.scope.setCurrentIndex(max(0, self.scope.findData(self.settings.value("preview_scope", "mix"))))
+        self.scope.currentIndexChanged.connect(self._scope_changed)
+        bar.addWidget(self.scope)
         bar.addStretch(1)
         for txt, tip, fn in (("−", "Zoom out", lambda: self.timeline.set_zoom(self.timeline.pps / 1.3)),
                              ("+", "Zoom in", lambda: self.timeline.set_zoom(self.timeline.pps * 1.3)),
@@ -289,7 +302,7 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         p = self._player
         playing = p.playing
         if self._preview_is_full and (playing or p.ended):
-            t = p.position()
+            t = self._pv_offset() + p.position()
             self.timeline.set_playhead(t)
             self.time_label.setText(fmt_time(t))
             if playing:
@@ -297,8 +310,11 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         if p.ended:
             p.ended = False
             if self._preview_is_full:
-                self.timeline.set_playhead(0.0)
-                self.time_label.setText("0:00")
+                t = self._pv_offset()                       # back to where the preview starts, ready to play it again
+                if self._player.loaded:
+                    self._player.seek(0.0)
+                self.timeline.set_playhead(t)
+                self.time_label.setText(fmt_time(t))
         if playing != self._was_playing:
             self._was_playing = playing
             self._update_actions()
@@ -306,8 +322,36 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
     def _seek(self, t: float):
         self.timeline.set_playhead(t)
         self.time_label.setText(fmt_time(t))
-        if self._preview_is_full and self._player.loaded and self.state.preview_path:
-            self._player.seek(t)
+        if not (self._preview_is_full and self._player.loaded and self._pv):
+            return
+        pv = self._pv
+        if pv["t0"] <= t <= pv["t1"]:
+            self._player.seek(t - pv["t0"])
+        elif pv["scope"] != "mix":                  # outside the short preview: the next Play makes the one for here
+            was = self._playing()
+            self._player.pause()
+            self._pv = None
+            self._preview_is_full = False
+            self._update_actions()
+            if was:
+                self.toggle_play()
+
+    def _pv_offset(self) -> float:
+        return self._pv["t0"] if self._pv else 0.0
+
+    def _pv_valid(self, scope: str) -> bool:
+        pv = self._pv
+        return bool(pv and pv["scope"] == scope and pv["rev"] == self.state.audio_rev and Path(pv["path"]).exists()
+                    and self._player.loaded)
+
+    def _scope_changed(self, _):
+        self.settings.setValue("preview_scope", self.scope.currentData())
+        if self._pv and self._pv["scope"] != self.scope.currentData():
+            was = self._playing()
+            self._player.pause()
+            self._update_actions()
+            if was:
+                self.toggle_play()
 
     def _start_audio(self, path, full: bool, at: float = 0.0):
         self._preview_is_full = full
@@ -320,30 +364,34 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
             QMessageBox.information(self, APP, "The preview was made, but this computer has no audio output "
                                                f"available for playback.\n\n{self._player.error}\n\nExporting still works.")
 
-    def _render_preview(self, plan, full: bool, then_at: float = 0.0):
+    def _render_preview(self, plan, full: bool, then_at: float = 0.0, window=None, scope: str = "mix"):
         if self._missing_check():
             return
         lib, paths = self.state.lib, self.state.paths
         self._preview_n += 1
         out = self.tmp / f"preview_{self._preview_n}.wav"
-
+        rev = self.state.audio_rev
         notes: list = []
 
         def job(cb, cancel):
-            audio = render_mix(plan, lib, paths, progress=lambda m, f: cb(m, f * 0.95), notes=notes)
+            audio = render_mix(plan, lib, paths, progress=lambda m, f: cb(m, f * 0.95), notes=notes, window=window)
             sf.write(str(out), audio.T, SR, subtype="PCM_16")
             return str(out)
 
         def done(path):
-            if full:
+            if full and window is None:
                 self.state.preview_path = path
+            if full:
+                t0, t1 = window if window else (0.0, 1e12)
+                self._pv = {"scope": scope, "t0": t0, "t1": t1, "rev": rev, "path": path}
             self._start_audio(path, full, then_at)
             if notes:
                 self.statusBar().showMessage(notes[0] if len(notes) == 1 else
                                              f"{len(notes)} stem transitions played as normal blends: those songs "
                                              "haven't been split into stems (Mix > Split songs into stems).", 12000)
 
-        self.run_task("Rendering preview…", job, done)
+        what = {"transition": "Rendering the transition…", "four": "Rendering 4 songs…"}.get(scope, "Rendering preview…")
+        self.run_task(what, job, done)
 
     def split_stems(self, song_ids=None):
         """Split songs into stems with the optional engine (all songs of the mix when none are named)."""
@@ -397,18 +445,36 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
             self._player.pause()
             self._update_actions()
             return
-        if self._preview_is_full and self._player.loaded and self.state.preview_path and Path(self.state.preview_path).exists():
+        scope = self.scope.currentData() or "mix"
+        at = self.timeline.playhead
+        if len(self.state.plan.tracks) < 2:
+            scope = "mix"
+        if self._preview_is_full and self._pv_valid(scope) and self._pv["t0"] <= at <= self._pv["t1"]:
+            self._player.seek(at - self._pv["t0"])           # what's loaded already covers the playhead
             self._player.play()
             self._update_actions()
             return
-        self._render_preview(self.state.plan, True, self.timeline.playhead)
+        if scope == "mix":
+            path = self.state.preview_path
+            if path and Path(path).exists():                    # made earlier and still current: just load it
+                self._pv = {"scope": "mix", "t0": 0.0, "t1": 1e12, "rev": self.state.audio_rev, "path": path}
+                self._start_audio(path, True, at)
+                self._update_actions()
+                return
+            self._render_preview(self.state.plan, True, at, scope="mix")
+            return
+        win = preview_window(self.state.plan, scope, at)
+        self.timeline.set_playhead(win[0])
+        self.time_label.setText(fmt_time(win[0]))
+        self._render_preview(self.state.plan, True, 0.0, window=win, scope=scope)
 
     def stop(self):
         self._player.pause()
+        t = self._pv["t0"] if self._pv and self._pv["scope"] != "mix" else 0.0
         if self._player.loaded:
             self._player.seek(0.0)
-        self.timeline.set_playhead(0.0)
-        self.time_label.setText("0:00")
+        self.timeline.set_playhead(t)
+        self.time_label.setText(fmt_time(t))
 
     # ------------------------------------------------------------------ tasks
     def run_task(self, title, fn, on_done):

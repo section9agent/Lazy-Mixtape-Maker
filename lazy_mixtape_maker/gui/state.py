@@ -33,12 +33,23 @@ class AppState(QObject):
         self.dirty = False
         self.sel = -1
         self.sel_fx: str | None = None
-        self.preview_path: str | None = None   # rendered preview of the current plan
+        self._preview_path: str | None = None   # rendered preview of the current plan
+        self.audio_rev = 0                        # goes up whenever the mix would sound different
         self._undo: list[str] = []
         self._redo: list[str] = []
         self._gesture = False
 
     # ---------------------------------------------------------------- shortcuts
+    @property
+    def preview_path(self) -> str | None:
+        return self._preview_path
+
+    @preview_path.setter
+    def preview_path(self, v: str | None) -> None:
+        if v is None:
+            self.audio_rev += 1          # (every short preview made before this is out of date too)
+        self._preview_path = v
+
     @property
     def plan(self) -> MixPlan:
         return self.session.plan

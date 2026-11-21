@@ -72,6 +72,44 @@ def export_both(session: Session, audio_path, video_path, video_settings=None, s
     return res
 
 
+PREVIEW_SCOPES = (("transition", "1 transition (2 songs)"), ("four", "4 songs"), ("mix", "Whole mix"))
+
+
+def preview_songs(plan, scope: str, at: float) -> tuple[int, int] | None:
+    """Which songs a short preview covers: the transition nearest `at` (seconds into the mix) and its two songs,
+    or four songs around it (three transitions). None means the whole mix."""
+    from .plan import timeline
+
+    n = len(plan.tracks)
+    if scope not in ("transition", "four") or n < 2:
+        return None
+    slots = timeline(plan)
+    mids = [(slots[i + 1].start + slots[i + 1].overlap_in / 2) / audio_io.SR for i in range(n - 1)]
+    i = min(range(n - 1), key=lambda k: abs(mids[k] - at))
+    if scope == "transition" or n <= 2:
+        return i, i + 1
+    first = max(0, min(i - 1, n - 4))
+    return first, min(n - 1, first + 3)
+
+
+def preview_window(plan, scope: str, at: float, lead: float = 10.0, tail: float = 10.0) -> tuple[float, float] | None:
+    """The stretch of the mix (start, end seconds) a short preview plays: from `lead` seconds before the first
+    blend of the songs preview_songs() picks to `tail` seconds after the last one. None means the whole mix."""
+    from .plan import timeline
+
+    got = preview_songs(plan, scope, at)
+    if got is None:
+        return None
+    first, last = got
+    slots = timeline(plan)
+    sr = audio_io.SR
+    t0 = slots[first + 1].start / sr - lead
+    t1 = (slots[last].start + slots[last].overlap_in) / sr + tail
+    if last - first == 1 and slots[last].overlap_in == 0:      # a hard cut: hear a little more either side
+        t0, t1 = t0 - 4.0, t1 + 4.0
+    return max(0.0, t0), min(slots[-1].end / sr, t1)
+
+
 def transition_preview_plan(plan, index: int, before: float = 14.0, after: float = 14.0):
     """A small copy of the plan with just songs `index` and `index + 1`, trimmed to a
     few seconds either side of the blend, so a transition can be auditioned quickly."""
