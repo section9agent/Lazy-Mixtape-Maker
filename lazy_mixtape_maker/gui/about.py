@@ -6,7 +6,7 @@ from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QPushButton, QScrollArea, QTextBrowser, QVBoxLayout,
                                QWidget)
 
-from .. import __version__, _buildinfo, updater
+from .. import __release_name__, __version__, _buildinfo, updater
 
 AUTHORS = "Coded by Claude &amp; Emmanuel Hoachlander"
 DONATE_EMAIL = "section9agent@hotmail.com"
@@ -67,7 +67,7 @@ class AboutDialog(QDialog):
                 pic.setPixmap(pm.scaled(84, 84, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         head.addWidget(pic)
         tag = _buildinfo.TAG
-        txt = QLabel(f"<h2 style='margin:0'>Lazy Mixtape Maker</h2>Version {__version__}"
+        txt = QLabel(f"<h2 style='margin:0'>Lazy Mixtape Maker</h2>Version {__version__} · <i>{__release_name__}</i>"
                      + (f" &nbsp;·&nbsp; build {tag}" if tag != "dev" else "")
                      + (" &nbsp;·&nbsp; with stems" if getattr(_buildinfo, "VARIANT", "") == "stems" else "") +
                      f"<br><b>{AUTHORS}</b><br>An offline auto-DJ: your music stays on your computer."

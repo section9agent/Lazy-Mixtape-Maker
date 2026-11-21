@@ -192,6 +192,7 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         self.b_down.clicked.connect(lambda: self._nudge(1))
         self.b_remove.clicked.connect(self.remove_selected)
         self.timeline.seek.connect(self._seek)
+        self.timeline.transition_clicked.connect(self._edit_transition)
         self.cue.export_clicked.connect(self.export_cue)
         self.visuals.add_clicked.connect(self.add_visual)
         self.visuals.add_milk_clicked.connect(self.add_milk)
@@ -806,6 +807,11 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
             self.bottom.setCurrentWidget(self.visuals)
             if dlg.added.warnings:
                 QMessageBox.information(self, APP, "Added, with a note:\n\n" + "\n".join(dlg.added.warnings))
+
+    def _edit_transition(self, after: int):
+        """A transition badge was clicked: show that blend in the inspector."""
+        self.state.select(after)
+        self.inspector.setCurrentWidget(self.inspector.trans_tab)
 
     def add_milk(self):
         from .milk_browser import MilkBrowser

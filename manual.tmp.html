@@ -194,12 +194,45 @@ tr, li { page-break-inside: avoid; }
 <h2 id="6-editing-the-mix">6. Editing the mix</h2>
 <p>Everything you change by hand is remembered, and the AI will not overwrite it when it refreshes. <strong>Undo</strong> (Ctrl+Z) and <strong>Redo</strong> (Ctrl+Shift+Z) work for every edit, and a drag counts as one step.</p>
 <h3 id="the-timeline">The timeline</h3>
-<p>Songs sit in two alternating rows, like two decks. Shaded areas between songs are the blends. Each song shows:</p>
+<p>Songs sit in two alternating rows, like two decks. Each song shows:</p>
 <ul>
 <li>a <strong>dark waveform</strong> (80% black) over its colour on every song,</li>
 <li>its <strong>parts</strong> (intro, verse, chorus…) in a coloured strip along the bottom,</li>
-<li>its <strong>effects</strong> as small coloured blocks underneath.</li>
+<li>its <strong>effects</strong> as coloured markers underneath (see below).</li>
 </ul>
+<p><strong>Transitions</strong> are the coloured zones where two songs overlap, with solid edges and a coloured bar along the top of both songs. Each one has a <strong>badge</strong> in the row under the time ruler saying what it is and how many beats it lasts (for example <em>⟷ bass swap · 16</em>). The colour tells the kind at a glance:</p>
+<table>
+<thead>
+<tr>
+<th>Colour</th>
+<th>Transition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Blue</td>
+<td>Bass-swap blend</td>
+</tr>
+<tr>
+<td>Green</td>
+<td>Crossfade</td>
+</tr>
+<tr>
+<td>Orange</td>
+<td>Cut with an effect</td>
+</tr>
+<tr>
+<td>Red</td>
+<td>Hard cut (a thin line, no overlap)</td>
+</tr>
+<tr>
+<td>Purple</td>
+<td>Any stem transition</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Effects</strong> sit under their song as labelled blocks (<em>echo</em>, <em>filter</em>… or a short code such as <strong>ECH</strong> or <strong>FLT</strong> when there isn't room). A thin line runs up into the song to show exactly where the effect starts. Even a very short effect is drawn big enough to grab. Effects that are switched off at their transition are grey and say <em>(off)</em>.</p>
+<p>Point at a badge or an effect to see its details. Hovered and selected markers light up.</p>
 <p>Zoom with <strong>−</strong>, <strong>+</strong>, <strong>Fit</strong>, or Ctrl + mouse wheel.</p>
 <table>
 <thead>
@@ -210,8 +243,12 @@ tr, li { page-break-inside: avoid; }
 </thead>
 <tbody>
 <tr>
+<td>A transition's <strong>badge</strong> (or the edge of its zone, between the rows)</td>
+<td>Make the blend longer (drag left) or shorter (drag right). A hard cut becomes a blend when you drag it longer.</td>
+</tr>
+<tr>
 <td>The <strong>middle</strong> of a song</td>
-<td>Make the blend with the previous song longer or shorter.</td>
+<td>The same: make the blend with the previous song longer or shorter.</td>
 </tr>
 <tr>
 <td>A song's <strong>left edge</strong></td>
@@ -222,11 +259,16 @@ tr, li { page-break-inside: avoid; }
 <td>End the song earlier or later.</td>
 </tr>
 <tr>
-<td>An <strong>effect block</strong></td>
+<td>An <strong>effect</strong></td>
 <td>Move the effect in time.</td>
+</tr>
+<tr>
+<td>An effect's <strong>right end</strong> (the two little lines)</td>
+<td>Make the effect longer or shorter.</td>
 </tr>
 </tbody>
 </table>
+<p>While you drag, a small box next to the pointer shows the new value (beats and seconds). <strong>Click</strong> a transition's badge to open it in the <strong>Transition</strong> tab. With an effect selected, the <strong>← →</strong> arrow keys nudge it by a quarter beat (<strong>Shift</strong>: a whole beat).</p>
 <p>Movements snap to beats.</p>
 <h3 id="song-tab">Song tab</h3>
 <ul>

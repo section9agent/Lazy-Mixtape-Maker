@@ -1,4 +1,4 @@
-# Lazy Mixtape Maker 6.1
+# Lazy Mixtape Maker 6.1 — The Whole Milk Update
 
 ## What's new
 
@@ -17,6 +17,14 @@ The classic Winamp visualizer is now a second kind of visual, next to Shadertoy.
   - **4 songs:** the four songs around that blend, for hearing how a run of songs flows.
   - **Whole mix:** everything, as before.
 - Short previews sound exactly like that part of the finished mix, and the playhead moves along the mix's own timeline while they play. The app remembers your choice.
+
+### Easier-to-see, easier-to-move timeline markers
+- **Transitions** are now coloured zones (blue bass swap, green crossfade, orange cut with an effect, red hard cut, purple stem transitions). They have solid edges and a coloured bar across both songs. Each one has a **badge** above the songs showing its kind and length in beats.
+- **Drag a badge** left or right to make the blend longer or shorter. Hard cuts get a badge too, and dragging one longer turns it into a blend. **Click a badge** to open that transition in the Transition tab.
+- **Effects** are bigger, labelled markers (with a short code such as ECH or FLT when space is tight). A line shows exactly where each one starts in the song, and they're never too small to grab. Clicks that land just next to one still pick it up.
+- **Drag an effect's right end** to make it longer or shorter.
+- **Arrow keys** nudge the selected effect by a quarter beat (Shift: a whole beat).
+- Hovering lights a marker up and shows its details. While dragging, a readout next to the pointer shows the new value in beats and seconds.
 
 ## Credits
 - projectM / libprojectM (LGPL-2.1): https://github.com/projectM-visualizer/projectm

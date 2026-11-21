@@ -121,20 +121,38 @@ Everything you change by hand is remembered, and the AI will not overwrite it wh
 
 ### The timeline
 
-Songs sit in two alternating rows, like two decks. Shaded areas between songs are the blends. Each song shows:
+Songs sit in two alternating rows, like two decks. Each song shows:
 
 - a **dark waveform** (80% black) over its colour on every song,
 - its **parts** (intro, verse, chorus…) in a coloured strip along the bottom,
-- its **effects** as small coloured blocks underneath.
+- its **effects** as coloured markers underneath (see below).
+
+**Transitions** are the coloured zones where two songs overlap, with solid edges and a coloured bar along the top of both songs. Each one has a **badge** in the row under the time ruler saying what it is and how many beats it lasts (for example *⟷ bass swap · 16*). The colour tells the kind at a glance:
+
+| Colour | Transition |
+|---|---|
+| Blue | Bass-swap blend |
+| Green | Crossfade |
+| Orange | Cut with an effect |
+| Red | Hard cut (a thin line, no overlap) |
+| Purple | Any stem transition |
+
+**Effects** sit under their song as labelled blocks (*echo*, *filter*… or a short code such as **ECH** or **FLT** when there isn't room). A thin line runs up into the song to show exactly where the effect starts. Even a very short effect is drawn big enough to grab. Effects that are switched off at their transition are grey and say *(off)*.
+
+Point at a badge or an effect to see its details. Hovered and selected markers light up.
 
 Zoom with **−**, **+**, **Fit**, or Ctrl + mouse wheel.
 
 | Drag… | To… |
 |---|---|
-| The **middle** of a song | Make the blend with the previous song longer or shorter. |
+| A transition's **badge** (or the edge of its zone, between the rows) | Make the blend longer (drag left) or shorter (drag right). A hard cut becomes a blend when you drag it longer. |
+| The **middle** of a song | The same: make the blend with the previous song longer or shorter. |
 | A song's **left edge** | Start the song later or earlier. The audio stays where it is in the mix; the blend with the previous song gets shorter or longer by the same amount. |
 | A song's **right edge** | End the song earlier or later. |
-| An **effect block** | Move the effect in time. |
+| An **effect** | Move the effect in time. |
+| An effect's **right end** (the two little lines) | Make the effect longer or shorter. |
+
+While you drag, a small box next to the pointer shows the new value (beats and seconds). **Click** a transition's badge to open it in the **Transition** tab. With an effect selected, the **← →** arrow keys nudge it by a quarter beat (**Shift**: a whole beat).
 
 Movements snap to beats.
 
