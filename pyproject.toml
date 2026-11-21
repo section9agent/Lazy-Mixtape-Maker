@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lazy-mixtape-maker"
-version = "6.0"
+version = "6.1"
 description = "Offline auto-DJ: analyses your music and blends it into one seamless mixtape, with cue sheet and Shadertoy video."
 requires-python = ">=3.10"
 dependencies = [

@@ -40,6 +40,7 @@ tr, li { page-break-inside: avoid; }
 <li><a href="#about-donations-and-updates">About, donations and updates</a></li>
 <li><a href="#stems-and-stem-transitions">Stems and stem transitions</a></li>
 <li><a href="#mashup-studio">Mashup Studio</a></li>
+<li><a href="#milkdrop-visuals">MilkDrop visuals</a></li>
 </ol>
 <hr />
 <h2 id="1-quick-start">1. Quick start</h2>
@@ -153,10 +154,41 @@ tr, li { page-break-inside: avoid; }
 <hr />
 <h2 id="5-playing-the-mix">5. Playing the mix</h2>
 <ul>
-<li><strong>Play / Pause</strong> (Space) renders a preview of the whole mix and plays it. It re-renders after you edit something.</li>
-<li><strong>Stop</strong> returns to the start.</li>
+<li><strong>Play / Pause</strong> (Space) renders a preview and plays it. It re-renders after you edit something.</li>
+<li><strong>Preview</strong> (beside the time, above the timeline) chooses what Play renders:</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Preview</th>
+<th>What plays</th>
+<th>Good for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>1 transition (2 songs)</strong></td>
+<td>The blend nearest the playhead, from about 10 seconds before it to 10 seconds after.</td>
+<td>Checking a transition after you change it. Ready in a few seconds.</td>
+</tr>
+<tr>
+<td><strong>4 songs</strong></td>
+<td>The four songs around the playhead's nearest blend, from 10 seconds before the first of their three blends to 10 seconds after the last.</td>
+<td>Hearing how a run of songs flows.</td>
+</tr>
+<tr>
+<td><strong>Whole mix</strong></td>
+<td>Everything, starting at the playhead.</td>
+<td>Listening right through.</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>A short preview sounds exactly like that part of the finished mix. Its playhead moves along the mix's own timeline, so you can see where you are. Click inside it to jump around in it. Click outside it and the next Play makes a new preview there. If it was playing, that starts straight away.</li>
+<li>When a short preview ends, the playhead goes back to its start, so Play hears it again. Editing the mix makes it out of date, and the next Play renders it afresh.</li>
+<li><strong>Stop</strong> returns to the start (of the short preview, or of the mix).</li>
 <li>Click the ruler or empty timeline space to move the playhead.</li>
-<li>To listen to a transition, put the playhead just before it and press Play.</li>
+<li>The app remembers your choice of Preview.</li>
 </ul>
 <hr />
 <h2 id="6-editing-the-mix">6. Editing the mix</h2>
@@ -339,6 +371,7 @@ tr, li { page-break-inside: avoid; }
 </table>
 <ul>
 <li><strong>Pick different random visuals</strong> reshuffles the random choices.</li>
+<li><strong>The app picks from</strong>: <strong>Shadertoy and MilkDrop</strong> (the default), <strong>Shadertoy only</strong> or <strong>MilkDrop only</strong>. This decides what "Let the app choose" and "Random" draw from. You can still give any song any visual by hand. See <a href="#milkdrop-visuals">MilkDrop visuals</a>.</li>
 <li><strong>Size</strong>: 854×480, 1280×720, 1920×1080 or 1080×1080 (square). <strong>Frame rate</strong>: 24, 30 or 60 fps.</li>
 <li><strong>Show cover art, artist and title</strong> turns the lower-left card on or off for this video. See also <a href="#13-settings">Settings</a>.</li>
 </ul>
@@ -390,10 +423,11 @@ tr, li { page-break-inside: avoid; }
 <p>Video export needs a graphics card or driver with <strong>OpenGL 3.3</strong>. Rendering takes longer than the length of the mix on slower computers, and you can cancel at any time.</p>
 <hr />
 <h2 id="11-shader-library-managing-visuals">11. Shader library: managing visuals</h2>
-<p>The visuals are <em>Shadertoy</em> shaders (small programs that draw animated pictures). Eight are built in. You can add more from <a href="https://www.shadertoy.com">shadertoy.com</a>. They are saved on your computer and work offline afterwards. Music-reactive shaders react to your mix.</p>
+<p>There are two kinds of visuals: <em>Shadertoy</em> shaders (small programs that draw animated pictures) and <em>MilkDrop</em> presets (the classic music visualizer, see <a href="#milkdrop-visuals">MilkDrop visuals</a>). MilkDrop presets are marked <strong>◈ MilkDrop</strong> in every visual list. Eight Shadertoy visuals are built in. You can add more from <a href="https://www.shadertoy.com">shadertoy.com</a>. They are saved on your computer and work offline afterwards. Music-reactive shaders react to your mix.</p>
 <p>Open the <strong>Shader library</strong> tab (bottom of the main window, or inside the Visualization Studio).</p>
 <ul>
-<li><strong>List</strong>: every visual with a thumbnail.</li>
+<li><strong>List</strong>: every visual with a thumbnail. <strong>Show</strong> above it picks <strong>All visuals</strong>, only <strong>Shadertoy</strong> or only <strong>MilkDrop</strong>.</li>
+<li><strong>Add MilkDrop…</strong> opens the MilkDrop browser (also in the <strong>Visuals</strong> tab).</li>
 <li><strong>Live preview</strong>: the selected visual animates on the right. Use <strong>Pause</strong> and <strong>Restart</strong>.</li>
 <li><strong>Name</strong>: rename your own visuals (built-ins can't be renamed).</li>
 <li><strong>Suits</strong>: calm, medium or intense. "Let the app choose" uses this.</li>
@@ -456,6 +490,7 @@ tr, li { page-break-inside: avoid; }
 <li><strong>Visual blend</strong>: how many seconds the visuals take to blend at each song change (the <em>Length</em> of a transition set to Automatic).</li>
 <li><strong>Default transition between songs</strong>: one of the 20 transitions with all its controls (see <a href="#video-transitions">Video transitions</a>). Select a song to give <em>its</em> transition different settings under <strong>Transition into this song</strong>.</li>
 <li><strong>Video files</strong>: if the file you opened is a video, its own picture is shown, in sync with its sound (<strong>Use the file's own video as the picture</strong> turns it off). Pick a visual for a song to replace it, or <strong>Video clip…</strong> to show another video file (looped) for that song.</li>
+<li><strong>The app picks from</strong>: Shadertoy and MilkDrop, Shadertoy only or MilkDrop only.</li>
 <li><strong>Size</strong>, <strong>Frame rate</strong>, <strong>Pick different random visuals</strong>.</li>
 <li><strong>Show cover art, artist and title</strong> (lower left) can be turned off for this project. Each marker can have its own cover image; markers without one get a plain coloured tile with the song's initial.</li>
 <li>Before the first marker, the video shows the audio file's own title.</li>
@@ -720,3 +755,31 @@ lmm config --overlay off                            turn the lower-left card off
 </ul>
 <h3 id="playing-and-saving">Playing and saving</h3>
 <p><strong>Play</strong> gets the mashup ready (the first time takes a moment while the songs are stretched and shifted) and plays from the playhead. <strong>Save</strong> keeps the mashup as a <code>.lmmash</code> file to come back to. <strong>Export…</strong> saves it as WAV, FLAC or MP3, and <strong>Add to mix</strong> saves it and adds it to your mixtape as a song.</p>
+<hr />
+<h2 id="milkdrop-visuals">MilkDrop visuals</h2>
+<p>MilkDrop is the music visualizer that came with Winamp: swirling, pulsing, feedback-heavy pictures that move with the beat. Each look is a <strong>preset</strong>, a small <code>.milk</code> text file. The app draws them with <strong>projectM</strong>, the open-source MilkDrop engine, so they work offline on Windows, macOS and Linux (Steam Deck included).</p>
+<p>MilkDrop presets are visuals like any other. The app can pick them for songs, you can give one to a song in the <strong>Visual</strong> tab or use one for the whole video, and they work in the Visualization Studio. They are kept apart from Shadertoy: the shader library can show just one kind, and <strong>The app picks from</strong> (Visuals tab, and the studio's Project settings) can limit the app's picks to <strong>Shadertoy only</strong> or <strong>MilkDrop only</strong>.</p>
+<p>They always react to your music. In a video every frame is drawn with the exact music at that moment, so the beat lines up however long the export takes. Live previews before there's a mix use a made-up beat.</p>
+<h3 id="what-comes-with-the-app">What comes with the app</h3>
+<ul>
+<li><strong>60 featured presets</strong>, picked by hand: six from each category (Dancer, Drawing, Fractal, Geometric, Hypnotic, Particles, Reaction, Sparkle, Supernova and Waveform). They're in the library from the start, like the built-in Shadertoy visuals.</li>
+<li><strong>The full "Cream of the Crop" pack</strong>: 9,795 presets compiled and sorted by Jason Fletcher (ISOSCELES), the pack projectM itself ships, plus the MilkDrop texture pack that many presets draw with.</li>
+</ul>
+<h3 id="the-milkdrop-browser">The MilkDrop browser</h3>
+<p>Open it with <strong>Add MilkDrop…</strong> (Shader library, or the Visuals tab).</p>
+<ul>
+<li>Pick a <strong>category</strong> on the left, or type in <strong>Search</strong> (it matches words in the preset's name, which includes its author).</li>
+<li>Click a preset to watch it live on the right.</li>
+<li><strong>Add to my visuals</strong> adds the selected presets (Ctrl/Shift-click to pick several, or double-click one). How intense a preset is comes from its category: Supernova, Sparkle, Particles and Dancer are intense; Hypnotic, Waveform and Drawing are calm. Change it afterwards under <strong>Suits</strong>.</li>
+<li><strong>Import .milk files…</strong> adds presets from your computer (any MilkDrop 1 or 2 preset). Picture files the preset uses that sit next to it are kept with it.</li>
+</ul>
+<p>You can also paste a preset's text into <strong>Add from Shadertoy…</strong> (the Paste code tab): the app recognises it and adds it as MilkDrop.</p>
+<h3 id="editing-sharing-backing-up">Editing, sharing, backing up</h3>
+<ul>
+<li><strong>View/Edit Preset</strong> shows the preset's text. For your own presets you can rename it and change the text (<strong>Save changes</strong> checks it's still a preset). The featured presets are view-only.</li>
+<li><strong>Remix</strong> isn't offered for MilkDrop, because presets already react to the music.</li>
+<li><strong>Export…</strong> saves a preset as a <code>.milk</code> file, with its own pictures beside it.</li>
+<li>Presets you added, and their pictures, travel inside saved sessions and in <strong>Back up all…</strong> like Shadertoy visuals.</li>
+</ul>
+<h3 id="if-a-preset-doesnt-draw">If a preset doesn't draw</h3>
+<p>A preset projectM can't read is replaced by a built-in visual, and the export tells you which one. If the browser says MilkDrop isn't available, the app couldn't load projectM. That only happens when running from source without it (see the README).</p>

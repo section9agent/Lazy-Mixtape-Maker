@@ -33,6 +33,14 @@ CREDITS = [
     ("audio-separator", "the stem splitter (in the download with stems)", "MIT", "https://github.com/nomadkaraoke/python-audio-separator"),
     ("Demucs (Meta)", "the model that splits songs into drums, bass, vocals and other", "MIT (code)",
      "https://github.com/facebookresearch/demucs"),
+    ("projectM (libprojectM)", "draws the MilkDrop visuals", "LGPL-2.1", "https://github.com/projectM-visualizer/projectm"),
+    ("Cream of the Crop presets", "the MilkDrop preset pack (9,795 presets), compiled and sorted by Jason Fletcher "
+                                  "(ISOSCELES); each preset belongs to its author, named in its file name",
+     "freely shared by their authors", "https://github.com/projectM-visualizer/presets-cream-of-the-crop"),
+    ("MilkDrop texture pack", "the pictures MilkDrop presets draw with", "freely shared",
+     "https://github.com/projectM-visualizer/presets-milkdrop-texture-pack"),
+    ("MilkDrop (Ryan Geiss / Nullsoft)", "the original music visualizer and its preset format", "BSD-3-Clause (MilkDrop 2 source)",
+     "https://www.geisswerks.com/milkdrop/"),
     ("PyInstaller", "packaging the app so it runs without Python", "GPL-2.0 with exception for built apps", "https://pyinstaller.org"),
     ("Shadertoy", "the visuals library idea and the shaders themselves - every shader belongs to its author, "
                   "who is named on the shader's Shadertoy page", "per-shader (see each shader's page)", "https://www.shadertoy.com"),

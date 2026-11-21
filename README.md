@@ -64,6 +64,21 @@ On **Shader library → Add from Shadertoy…** pick a tab: **Paste code** for a
 multi-pass (Buffer A–D) shaders work, and music-reactive ones react to your mix. Inputs that need the
 internet, a webcam or video are replaced with noise. Eight original visuals are built in.
 
+### MilkDrop visuals
+
+MilkDrop presets (`.milk`) are a second kind of visual, drawn by [libprojectM](https://github.com/projectM-visualizer/projectm)
+(LGPL-2.1, loaded as a separate library). A featured set of 60 ships in `lazy_mixtape_maker/assets/milkdrop/featured`.
+The packaged apps also carry the full [Cream of the Crop](https://github.com/projectM-visualizer/presets-cream-of-the-crop)
+pack and the [texture pack](https://github.com/projectM-visualizer/presets-milkdrop-texture-pack). Use
+**Shader library → Add MilkDrop…** to browse them or import `.milk` files.
+
+Running from source, MilkDrop needs libprojectM 4.2 (the build uses commit `eae22de`, the first with
+`projectm_set_frame_time` and `projectm_opengl_render_frame_fbo`; release 4.1 is too old). Build it with
+`cmake -DBUILD_SHARED_LIBS=ON -DENABLE_PLAYLIST=OFF` and point `LMM_PROJECTM_LIB` at the library file
+(or install it into `packaging/projectm`). `LMM_MILKDROP_PACK` and `LMM_MILKDROP_TEXTURES` (or
+`packaging/milkdrop/presets` and `packaging/milkdrop/textures`) give the browser the full pack. Without
+libprojectM everything else works, and MilkDrop presets are drawn as a built-in visual instead.
+
 ## Command line
 
 ```

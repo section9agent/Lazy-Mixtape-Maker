@@ -7,6 +7,12 @@ on:
         description: "Release tag for the draft (e.g. v0.2.0). Leave empty for a build-number tag."
         required: false
         default: ""
+env:
+  # MilkDrop: libprojectM from the first commit with the frame-time and render-to-texture calls the app uses
+  # (release 4.1 lacks them), and the preset and texture packs, all pinned so every build is the same.
+  PROJECTM_COMMIT: eae22de40144ee8ded92f3c04b93a4c2f82adcc0
+  PRESETS_COMMIT: 0180df21f5e0bd39b9060cc5de420ed2f1f9e509
+  TEXTURES_COMMIT: 6368812f27bc747b517218fbf89d21d59afce4d9
 jobs:
   build:
     strategy:
@@ -39,6 +45,45 @@ jobs:
       - name: Linux GL/audio libraries
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libasound2-dev libpulse0
+      - name: libprojectM build cache
+        id: pmcache
+        uses: actions/cache@v4
+        with:
+          path: packaging/projectm
+          key: projectm-${{ env.PROJECTM_COMMIT }}-${{ runner.os }}-v1
+      - name: Build libprojectM (draws the MilkDrop visuals)
+        if: steps.pmcache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -e
+          git init -q pm-src && cd pm-src
+          git remote add origin https://github.com/projectM-visualizer/projectm.git
+          git fetch -q --depth 1 origin "$PROJECTM_COMMIT" && git checkout -q FETCH_HEAD
+          git submodule update -q --init --recursive --depth 1
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DENABLE_PLAYLIST=OFF \
+                -DBUILD_TESTING=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+                -DCMAKE_INSTALL_PREFIX=../packaging/projectm
+          cmake --build build --config Release --parallel 4
+          cmake --install build --config Release
+          cd .. && rm -rf pm-src
+      - name: MilkDrop presets and textures
+        shell: bash
+        run: |
+          set -e
+          fetch() { git init -q "$2" && git -C "$2" remote add origin "https://github.com/projectM-visualizer/$1.git" &&
+                    git -C "$2" fetch -q --depth 1 origin "$3" && git -C "$2" checkout -q FETCH_HEAD && rm -rf "$2/.git"; }
+          fetch presets-cream-of-the-crop pm-presets "$PRESETS_COMMIT"
+          fetch presets-milkdrop-texture-pack pm-textures "$TEXTURES_COMMIT"
+          mkdir -p packaging/milkdrop
+          rm -rf "pm-presets/! Transition"      # fade-to-black presets, not visuals in their own right
+          mv pm-presets packaging/milkdrop/presets
+          mv pm-textures/textures packaging/milkdrop/textures
+          rm -rf pm-textures
+          f=$(find packaging/projectm \( -name "projectM-4*.dll" -o -name "libprojectM-4.so.4" -o -name "libprojectM-4*.dylib" \) | head -1)
+          echo "libprojectM: $f"
+          test -n "$f"
+          if [ "$RUNNER_OS" = "Windows" ]; then f=$(cygpath -w "$PWD/$f"); else f="$PWD/$f"; fi
+          echo "LMM_PROJECTM_LIB=$f" >> "$GITHUB_ENV"
       - name: PyTorch (CPU-only) for the stems build
         if: matrix.variant == 'stems'
         shell: bash
@@ -66,6 +111,7 @@ jobs:
         shell: bash
         env:
           LMM_VARIANT: ${{ matrix.variant }}
+          LMM_REQUIRE_MILKDROP: "1"
         run: |
           set -o pipefail
           pyinstaller packaging/lmm.spec --noconfirm 2>&1 | tee log.txt || { echo "::error title=pyinstaller::$(tail -c 3500 log.txt | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"; exit 1; }
