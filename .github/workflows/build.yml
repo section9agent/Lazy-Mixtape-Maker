@@ -1,116 +1,184 @@
-# Builds Digi-Deck for Windows, Linux and macOS, then puts everything in one draft GitHub release.
-# Runs when you push a version tag (git tag v2.0.0 && git push origin v2.0.0), or by hand from the Actions tab ("Run workflow").
-#
-#   Windows : installer (.exe), portable .exe                                  - x64
-#   Linux   : AppImage (works on SteamOS / Steam Deck) and .deb                - x64
-#   macOS   : .dmg and .zip, one for Apple Silicon (arm64) and one for Intel (x64)
-#
-# The macOS builds are not signed (no Apple developer certificate), so the first time a Mac user opens the app they need to
-# right-click it > Open (or System Settings > Privacy & Security > Open Anyway).
-name: Build & draft release
-
+name: Build apps
 on:
-  push:
-    tags: ['v*']
+  push: { tags: ["v*"] }
   workflow_dispatch:
-
-permissions:
-  contents: write
-
+    inputs:
+      tag:
+        description: "Release tag for the draft (e.g. v0.2.0). Leave empty for a build-number tag."
+        required: false
+        default: ""
+env:
+  # MilkDrop: libprojectM from the first commit with the frame-time and render-to-texture calls the app uses
+  # (release 4.1 lacks them), and the preset and texture packs, all pinned so every build is the same.
+  PROJECTM_COMMIT: eae22de40144ee8ded92f3c04b93a4c2f82adcc0
+  PRESETS_COMMIT: 0180df21f5e0bd39b9060cc5de420ed2f1f9e509
+  TEXTURES_COMMIT: 6368812f27bc747b517218fbf89d21d59afce4d9
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: windows
-            os: windows-latest
-            args: --win --x64
-          - name: linux
-            os: ubuntu-latest
-            args: --linux --x64
-          - name: mac-arm64
-            os: macos-latest          # Apple Silicon runner
-            args: --mac --arm64
-            arch: arm64
-          - name: mac-x64
-            os: macos-latest          # cross-built for Intel Macs (FFmpeg is fetched for x64 below)
-            args: --mac --x64
-            arch: x64
-    name: ${{ matrix.name }}
+          - { os: windows-latest, name: Windows, variant: "" }
+          - { os: macos-latest,   name: macOS,   variant: "" }
+          - { os: ubuntu-22.04,   name: Linux,   variant: "" }
+          # The "with stems" downloads: the stem engine (PyTorch + Demucs model) packed in.
+          - { os: windows-latest, name: Windows, variant: stems }
+          - { os: macos-latest,   name: macOS,   variant: stems }
+          - { os: ubuntu-22.04,   name: Linux,   variant: stems }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install
-        run: npm install
+      - name: Stamp the build with its release tag (the app's update check compares against it)
+        shell: bash
         env:
-          # ffmpeg-static downloads an FFmpeg binary for the machine it installs on; for the Intel Mac build it must be the x64 one
-          npm_config_arch: ${{ matrix.arch }}
-
-      - name: FFmpeg for the target Mac
-        if: matrix.arch != ''
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          rm -f node_modules/ffmpeg-static/ffmpeg
-          npm_config_arch=${{ matrix.arch }} npm rebuild ffmpeg-static
-          file node_modules/ffmpeg-static/ffmpeg
-
-      - run: npm test
-
-      - name: Package
-        run: npx electron-builder ${{ matrix.args }} --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false      # no code signing
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: actions/upload-artifact@v4
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then TAG="${GITHUB_REF_NAME}";
+          elif [ -n "$INPUT_TAG" ]; then TAG="$INPUT_TAG";
+          else TAG="build-${GITHUB_RUN_NUMBER}"; fi
+          printf 'TAG = "%s"\nBUILT = "%s"\nVARIANT = "%s"\n' "$TAG" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${{ matrix.variant }}" > lazy_mixtape_maker/_buildinfo.py
+          cat lazy_mixtape_maker/_buildinfo.py
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      # ffmpeg is bundled by the imageio-ffmpeg package, so no separate install is needed on any OS.
+      - name: Linux GL/audio libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libasound2-dev libpulse0
+      - name: libprojectM build cache
+        id: pmcache
+        uses: actions/cache@v4
         with:
-          name: digi-deck-${{ matrix.name }}
-          path: |
-            dist/*.exe
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.dmg
-            dist/*.zip
-            dist/*.blockmap
-            dist/latest*.yml
-          if-no-files-found: error
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      # the two Mac builds each write latest-mac.yml; merge them so auto-update finds both the arm64 and the x64 files
-      - name: Merge latest-mac.yml
+          path: packaging/projectm
+          key: projectm-${{ env.PROJECTM_COMMIT }}-${{ runner.os }}-v1
+      - name: Build libprojectM (draws the MilkDrop visuals)
+        if: steps.pmcache.outputs.cache-hit != 'true'
+        shell: bash
         run: |
           set -e
-          mkdir -p out
-          find artifacts -type f ! -name 'latest-mac.yml' -exec cp {} out/ \;
-          A=artifacts/digi-deck-mac-arm64/latest-mac.yml; X=artifacts/digi-deck-mac-x64/latest-mac.yml
-          if [ -f "$A" ] && [ -f "$X" ]; then
-            node -e '
-              const fs = require("fs"), [a, x] = process.argv.slice(1).map(f => fs.readFileSync(f, "utf8"));
-              const files = t => t.split(/\n(?=  - url:)/).slice(1).join("\n").split(/\npath:/)[0];
-              const head = a.split("\nfiles:")[0], tail = a.slice(a.indexOf("\npath:"));
-              fs.writeFileSync("out/latest-mac.yml", head + "\nfiles:\n" + files(a).trimEnd() + "\n" + files(x).trimEnd() + tail);
-            ' "$A" "$X"
-          elif [ -f "$A" ]; then cp "$A" out/; elif [ -f "$X" ]; then cp "$X" out/; fi
-          ls -la out
-
-      - uses: softprops/action-gh-release@v2
+          git init -q pm-src && cd pm-src
+          git remote add origin https://github.com/projectM-visualizer/projectm.git
+          git fetch -q --depth 1 origin "$PROJECTM_COMMIT" && git checkout -q FETCH_HEAD
+          git submodule update -q --init --recursive --depth 1
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DENABLE_PLAYLIST=OFF \
+                -DBUILD_TESTING=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+                -DCMAKE_INSTALL_PREFIX=../packaging/projectm
+          cmake --build build --config Release --parallel 4
+          cmake --install build --config Release
+          cd .. && rm -rf pm-src
+      - name: MilkDrop presets and textures
+        shell: bash
+        run: |
+          set -e
+          fetch() { git init -q "$2" && git -C "$2" remote add origin "https://github.com/projectM-visualizer/$1.git" &&
+                    git -C "$2" fetch -q --depth 1 origin "$3" && git -C "$2" checkout -q FETCH_HEAD && rm -rf "$2/.git"; }
+          fetch presets-cream-of-the-crop pm-presets "$PRESETS_COMMIT"
+          fetch presets-milkdrop-texture-pack pm-textures "$TEXTURES_COMMIT"
+          mkdir -p packaging/milkdrop
+          rm -rf "pm-presets/! Transition"      # fade-to-black presets, not visuals in their own right
+          mv pm-presets packaging/milkdrop/presets
+          mv pm-textures/textures packaging/milkdrop/textures
+          rm -rf pm-textures
+          f=$(find packaging/projectm \( -name "projectM-4*.dll" -o -name "libprojectM-4.so.4" -o -name "libprojectM-4*.dylib" \) | head -1)
+          echo "libprojectM: $f"
+          test -n "$f"
+          if [ "$RUNNER_OS" = "Windows" ]; then f=$(cygpath -w "$PWD/$f"); else f="$PWD/$f"; fi
+          echo "LMM_PROJECTM_LIB=$f" >> "$GITHUB_ENV"
+      - name: PyTorch (CPU-only) for the stems build
+        if: matrix.variant == 'stems'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then pip install torch;
+          else pip install torch --index-url https://download.pytorch.org/whl/cpu; fi
+      - run: pip install -r requirements-dev.txt
+      - name: Stem engine and its model
+        if: matrix.variant == 'stems'
+        shell: bash
+        run: |
+          set -o pipefail
+          # On failure, show the end of the output as an error (the full log isn't always easy to get at).
+          fail() { echo "::error title=$1::$(tail -c 3500 log.txt | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"; exit 1; }
+          pip install -r requirements-stems.txt 2>&1 | tee log.txt || fail "pip install"
+          python packaging/fetch_stems_model.py 2>&1 | tee log.txt || fail "model download"
+      # The runners have no GPU. Tests that need OpenGL skip themselves when it isn't there.
+      # (The stems build runs the same code; it is checked by the smoke test after packaging instead.)
+      - run: python -m pytest -x -q
+        if: matrix.variant == ''
+        env:
+          QT_QPA_PLATFORM: offscreen
+          LMM_AUDIO_BACKEND: "null"
+      - name: Package
+        shell: bash
+        env:
+          LMM_VARIANT: ${{ matrix.variant }}
+          LMM_REQUIRE_MILKDROP: "1"
+        run: |
+          set -o pipefail
+          pyinstaller packaging/lmm.spec --noconfirm 2>&1 | tee log.txt || { echo "::error title=pyinstaller::$(tail -c 3500 log.txt | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"; exit 1; }
+      - name: Smoke test - split a song with the packaged engine
+        if: matrix.variant == 'stems'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then APP="dist/Lazy Mixtape Maker.app/Contents/MacOS/LazyMixtapeMaker";
+          elif [ "$RUNNER_OS" = "Windows" ]; then APP="dist/LazyMixtapeMaker/LazyMixtapeMaker.exe";
+          else APP="dist/LazyMixtapeMaker/LazyMixtapeMaker"; fi
+          set -o pipefail
+          python packaging/smoke_stems.py "$APP" 2>&1 | tee log.txt || { echo "::error title=smoke test::$(tail -c 3500 log.txt | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"; exit 1; }
+      - name: Zip
+        shell: bash
+        run: |
+          TAIL=""; if [ "${{ matrix.variant }}" = "stems" ]; then TAIL="-Stems"; fi
+          cd dist
+          mkdir -p ../artifacts-to-upload
+          if [ "$RUNNER_OS" = "Windows" ]; then 7z a ../artifacts-to-upload/LazyMixtapeMaker-Windows$TAIL.zip LazyMixtapeMaker;
+          elif [ "$RUNNER_OS" = "macOS" ]; then ditto -c -k --keepParent "Lazy Mixtape Maker.app" ../artifacts-to-upload/LazyMixtapeMaker-macOS$TAIL.zip;
+          else tar czf ../artifacts-to-upload/LazyMixtapeMaker-Linux$TAIL.tar.gz LazyMixtapeMaker; fi
+          ls -la ../artifacts-to-upload
+      - uses: actions/upload-artifact@v4
         with:
-          draft: true
-          name: Digi-Deck ${{ github.ref_name }}
-          body_path: RELEASE_NOTES.md
-          files: out/*
+          name: LazyMixtapeMaker-${{ matrix.name }}${{ matrix.variant == 'stems' && '-Stems' || '' }}
+          path: "artifacts-to-upload/*"
+
+  release:
+    # Collects the three builds into a DRAFT GitHub release (nothing is public until you click Publish).
+    needs: build
+    if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-files
+          merge-multiple: true
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            lazy_mixtape_maker/__init__.py
+            RELEASE-NOTES.md
+          sparse-checkout-cone-mode: false
+          path: src
+      - name: Create draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then TAG="${GITHUB_REF_NAME}";
+          elif [ -n "$INPUT_TAG" ]; then TAG="$INPUT_TAG";
+          else TAG="build-${GITHUB_RUN_NUMBER}"; fi
+          ls -la release-files
+          if gh release view "$TAG" --repo "$REPO" --json isDraft -q .isDraft 2>/dev/null | grep -q true; then
+            gh release delete "$TAG" --repo "$REPO" --yes
+          fi
+          NAME=$(sed -n 's/^__release_name__ = "\(.*\)"/\1/p' src/lazy_mixtape_maker/__init__.py)
+          TITLE="Lazy Mixtape Maker ${TAG}${NAME:+ — $NAME}"
+          if [ -s src/RELEASE-NOTES.md ]; then
+            gh release create "$TAG" release-files/* --repo "$REPO" --draft \
+              --target "${GITHUB_SHA}" --title "$TITLE" --notes-file src/RELEASE-NOTES.md
+            exit 0
+          fi
+          gh release create "$TAG" release-files/* --repo "$REPO" --draft \
+            --target "${GITHUB_SHA}" --title "$TITLE" \
+            --notes "Windows (.zip), macOS (.zip) and Linux (.tar.gz) builds. Unzip and run LazyMixtapeMaker. Everything runs offline. The -Stems downloads also contain the stem engine (stem transitions and the Mashup Studio); they are much bigger."

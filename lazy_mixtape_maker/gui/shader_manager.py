@@ -15,6 +15,7 @@ from ..visuals import Shader, ShaderError, ShaderLibrary, shader_to_json
 from .dialogs import AddVisualDialog, EditShaderDialog
 from ..remix import reacts_to_audio
 from .remix_studio import RemixStudio
+from .fit import FitImage
 from .workers import FrameWorker
 
 ENERGY = (("calm", "Calm"), ("mid", "Medium"), ("high", "Intense"))
@@ -143,11 +144,10 @@ class ShaderManager(QWidget):
         lay.addLayout(left, 3)
 
         right = QVBoxLayout()
-        self.screen = QLabel("Choose a visual to preview it")
-        self.screen.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.screen.setFixedSize(480, 270)
-        self.screen.setStyleSheet("background:#0b0b10;border-radius:6px;color:#8b93a1")
-        right.addWidget(self.screen, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.screen = FitImage(QSize(192, 108))        # as big as there's room for (small screens: Steam Deck)
+        self.screen.setMaximumSize(QSize(640, 360))
+        self.screen.setText("Choose a visual to preview it")
+        right.addWidget(self.screen, 1)
         ctl = QHBoxLayout()
         self.b_play = QPushButton("❚❚ Pause")
         self.b_restart = QPushButton("↺ Restart")
@@ -185,7 +185,6 @@ class ShaderManager(QWidget):
         self.warn.setWordWrap(True)
         self.warn.setStyleSheet("color:#ffb454")
         right.addWidget(self.warn)
-        right.addStretch(1)
         lay.addLayout(right, 4)
 
         self.timer = QTimer(self)

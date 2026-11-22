@@ -26,6 +26,9 @@ The classic Winamp visualizer is now a second kind of visual, next to Shadertoy.
 - **Arrow keys** nudge the selected effect by a quarter beat (Shift: a whole beat).
 - Hovering lights a marker up and shows its details. While dragging, a readout next to the pointer shows the new value in beats and seconds.
 
+### Steam Deck and small screens
+- Maximising the window on a small screen (Steam Deck, 1280×800) no longer piles controls on top of each other in the Visuals, Shader library and other panels. Panels short on room now scroll, the shader and MilkDrop previews shrink to fit, and the window fits the Deck's screen even with large text.
+
 ## Credits
 - projectM / libprojectM (LGPL-2.1): https://github.com/projectM-visualizer/projectm
 - Cream of the Crop preset pack, compiled by Jason Fletcher (ISOSCELES). Each preset belongs to its author, named in its file name.

@@ -117,6 +117,8 @@ Use **Generate mix** (Ctrl+G) to build, or rebuild, the mix. Rebuilding replaces
 
 ## 6. Editing the mix
 
+**Small screens (Steam Deck).** The window fits a 1280×800 screen even with large text. When a panel has less room than it needs, it gets a scroll bar instead of squeezing its controls together. Drag the bar between the top and bottom halves of the window to give either half more room. The visual previews shrink to fit.
+
 Everything you change by hand is remembered, and the AI will not overwrite it when it refreshes. **Undo** (Ctrl+Z) and **Redo** (Ctrl+Shift+Z) work for every edit, and a drag counts as one step.
 
 ### The timeline

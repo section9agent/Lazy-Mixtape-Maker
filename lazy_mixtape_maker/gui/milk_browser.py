@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt, QTimer
+from PySide6.QtCore import QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QDialog, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout)
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QDialog, QFileDialog, QHBoxLay
 from .. import milkdrop
 from ..video import AudioTexture
 from ..visuals import Shader, ShaderError, ShaderLibrary
+from .fit import FitImage
 from .workers import FrameWorker
 
 ALL = "__all__"
@@ -70,16 +71,14 @@ class MilkBrowser(QDialog):
         self.items.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         body.addWidget(self.items, 1)
         right = QVBoxLayout()
-        self.screen = QLabel("Click a preset to watch it")
-        self.screen.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.screen.setFixedSize(480, 270)
-        self.screen.setStyleSheet("background:#0b0b10;border-radius:6px;color:#8b93a1")
-        right.addWidget(self.screen)
+        self.screen = FitImage(QSize(240, 135))
+        self.screen.setMaximumSize(QSize(640, 360))
+        self.screen.setText("Click a preset to watch it")
+        right.addWidget(self.screen, 1)
         self.info = QLabel()
         self.info.setWordWrap(True)
         self.info.setStyleSheet("color:#8b93a1")
         right.addWidget(self.info)
-        right.addStretch(1)
         body.addLayout(right)
         lay.addLayout(body, 1)
         row = QHBoxLayout()

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ..audio_io import SR, is_video_file
 from ..video import MODE_LABELS, MODES, resolve_assignments
+from .fit import FitTabs
 from ..visuals import VISUAL_SOURCES, visual_label
 from .state import AppState
 from .workers import ThumbWorker
@@ -93,7 +94,7 @@ class ThumbCache(QObject):
 
 
 # ====================================================================== inspector
-class Inspector(QTabWidget):
+class Inspector(FitTabs):
     def __init__(self, state: AppState, thumbs: ThumbCache, parent=None):
         super().__init__(parent)
         self.state = state
@@ -698,7 +699,10 @@ class VisualsPanel(QWidget):
         lay = QHBoxLayout(self)
         left = QVBoxLayout()
         row = QHBoxLayout()
-        row.addWidget(QLabel("<b>Visuals</b> — saved on this computer, ready to use offline"))
+        head = QLabel("<b>Visuals</b>")
+        head.setToolTip("Saved on this computer, ready to use offline.")
+        row.addWidget(head)
+        row.addStretch(1)
         row.addStretch(1)
         self.b_add = QPushButton("Add from Shadertoy…")
         self.b_milk = QPushButton("Add MilkDrop…")
@@ -727,7 +731,9 @@ class VisualsPanel(QWidget):
             self.radios[m] = rb
             form.addWidget(rb)
         self.single = QComboBox()
-        form.addWidget(QLabel("The one visual (for “One visual for the whole video”):"))
+        one = QLabel("The one visual (for “One visual for the whole video”):")
+        one.setWordWrap(True)
+        form.addWidget(one)
         form.addWidget(self.single)
         self.reroll = QPushButton("Pick different random visuals")
         form.addWidget(self.reroll)

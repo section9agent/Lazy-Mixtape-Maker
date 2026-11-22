@@ -27,6 +27,7 @@ from .transition_editor import TransitionsPanel
 from .dialogs import AddVisualDialog, GenerateDialog
 from .song_info import SongInfoDialog
 from .shader_manager import ShaderManager
+from .fit import FitTabs
 from .panels import CuePanel, Inspector, ThumbCache, VisualsPanel, fmt_hms, fmt_time
 from .state import AppState
 from .timeline import TimelineWidget, track_color
@@ -168,8 +169,8 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         tv.addWidget(self.scroll, 1)
         self.cue = CuePanel(s)
         self.visuals = VisualsPanel(s, self.thumbs)
-        self.bottom = QTabWidget()
-        self.bottom.addTab(tl, "Timeline")
+        self.bottom = FitTabs()          # pages scroll rather than squash on small screens (Steam Deck)
+        self.bottom.addTab(tl, "Timeline", wrap=False)
         self.bottom.addTab(self.cue, "Cue sheet")
         self.bottom.addTab(self.visuals, "Visuals")
         self.transitions = TransitionsPanel(s)
