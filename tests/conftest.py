@@ -39,3 +39,37 @@ def _no_project_carried_over():
     project.set_current(None)
     yield
     project.set_current(None)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Stop any Qt thread still running when the tests end: Qt aborts the whole process ("QThread: Destroyed
+    while thread is still running") if one is alive at exit, which would turn a passing run into a crash."""
+    import gc
+    try:
+        from PySide6.QtCore import QThread
+    except Exception:  # noqa: BLE001
+        return
+    found = [o for o in gc.get_objects() if isinstance(o, QThread)]
+    try:                                    # (and threads owned by windows, which Python may not be tracking)
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is not None:
+            for w in app.topLevelWidgets():
+                found += w.findChildren(QThread)
+            found += app.findChildren(QThread)
+    except Exception:  # noqa: BLE001
+        pass
+    for o in found:
+        try:
+            if o.isRunning():
+                print(f"\nstopping a leftover thread: {type(o).__name__}", flush=True)
+                for name in ("stop", "cancel", "requestInterruption", "quit"):
+                    fn = getattr(o, name, None)
+                    if callable(fn):
+                        try:
+                            fn()
+                        except Exception:  # noqa: BLE001
+                            pass
+                o.wait(5000)
+        except (RuntimeError, ReferenceError):
+            continue
