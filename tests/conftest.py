@@ -49,7 +49,13 @@ def pytest_sessionfinish(session, exitstatus):
         from PySide6.QtCore import QThread
     except Exception:  # noqa: BLE001
         return
-    found = [o for o in gc.get_objects() if isinstance(o, QThread)]
+    found = []
+    for o in gc.get_objects():
+        try:
+            if isinstance(o, QThread):
+                found.append(o)
+        except Exception:  # noqa: BLE001  (a dead weak proxy, say)
+            continue
     try:                                    # (and threads owned by windows, which Python may not be tracking)
         from PySide6.QtWidgets import QApplication
         app = QApplication.instance()
