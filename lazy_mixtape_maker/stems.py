@@ -89,7 +89,9 @@ def available() -> bool:
 
 # -------------------------------------------------------------------- the cache
 def cache_root() -> Path:
-    return data_dir() / "stems"
+    """Where new stems go: the current project's stems folder (see project.py)."""
+    from . import project
+    return project.stems_root()
 
 
 def bundled_models() -> Path | None:
@@ -114,7 +116,15 @@ def models_dir() -> Path:
 
 
 def song_dir(song_id: str) -> Path:
-    return cache_root() / song_id
+    """A song's stems folder: in the current project, or (stems split by versions before 6.2) the old shared
+    folder when only that has them."""
+    from . import project
+    d = cache_root() / song_id
+    if not (d / "stems.json").exists():
+        old = project.legacy_stems() / song_id
+        if old != d and (old / "stems.json").exists():
+            return old
+    return d
 
 
 def cached(song_id: str) -> dict[str, Path] | None:
@@ -201,8 +211,8 @@ def split(path, song_id: str | None = None, progress=None, cancel=None, force: b
     py = engine_python()
     if py is None:
         raise StemsUnavailable(INSTALL_HINT)
-    final = song_dir(song_id)
-    work = final.with_name(final.name + ".part")              # an interrupted split never looks finished
+    # (made outside the project folder, which may be saved elsewhere - and moved - while this runs)
+    work = data_dir() / "stems-work" / (song_id + ".part")    # an interrupted split never looks finished
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     try:
@@ -213,8 +223,12 @@ def split(path, song_id: str | None = None, progress=None, cancel=None, force: b
             raise StemsError("The stem engine produced no stems.")
         (work / "stems.json").write_text(json.dumps({"stems": got, "model": MODEL, "shifts": shifts, "source": path.name,
                                                      "seconds": done.get("seconds")}), encoding="utf-8")
-        shutil.rmtree(final, ignore_errors=True)
-        work.rename(final)
+        from . import project
+        with project.LOCK:                                    # into whichever project is open now
+            final = cache_root() / song_id
+            final.parent.mkdir(parents=True, exist_ok=True)
+            shutil.rmtree(final, ignore_errors=True)
+            shutil.move(str(work), str(final))
     except BaseException:
         shutil.rmtree(work, ignore_errors=True)
         raise

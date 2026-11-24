@@ -30,3 +30,12 @@ def pytest_runtest_logreport(report):
     text = str(report.longreprtext)[-2500:]
     text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
     print(f"\n::error title=FAILED {report.nodeid} ({report.when})::{text}", flush=True)
+
+
+@pytest.fixture(autouse=True)
+def _no_project_carried_over():
+    """Each test starts with no current project (project.py keeps one for the whole app)."""
+    from lazy_mixtape_maker import project
+    project.set_current(None)
+    yield
+    project.set_current(None)

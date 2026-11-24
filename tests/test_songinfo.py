@@ -34,8 +34,9 @@ def test_song_info_edit_undo_save_and_cover(tmp_path, monkeypatch):
     st.redo()
     assert st.lib[sid].title == "New Title" and sid in songinfo.overrides(st.session.extra, w.tmp)
     # saved in the session, cover included, and read back
-    st.save(tmp_path / "info.lmm")
-    s2 = load_session(tmp_path / "info.lmm", [d])
+    saved = st.save(tmp_path / "info.lmm")              # (into its project folder: tmp/info/info.lmm)
+    assert saved == tmp_path / "info" / "info.lmm"
+    s2 = load_session(saved, [d])
     assert s2.library[sid].title == "New Title" and sid in songinfo.overrides(s2.extra, tmp_path)
     # "no cover" and "the file's cover"
     st.edit_info(sid, cover="none")

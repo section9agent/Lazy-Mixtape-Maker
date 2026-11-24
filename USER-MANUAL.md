@@ -205,8 +205,11 @@ The AI picks effects too (you can turn that off in Generate mix). Its choices ar
 
 ## 8. Saving, sharing and reopening
 
-- **Save session** (Ctrl+S) writes a `.lmm` file. **Open session** (Ctrl+O) brings it back with every edit.
-- **To share a mix with a friend:** give them the `.lmm` file and a folder with the same songs. They open the file, point the app at their folder if it asks, and get exactly your mix to play or change. Songs are found by their content, so renamed or moved files are fine.
+- **Save session** (Ctrl+S) saves the mix as a **project folder** named after it, holding the `.lmm` session file and a `stems` folder with the stems split for its songs. Choosing *Music/Sunday.lmm* makes *Music/Sunday/Sunday.lmm*. If you pick a spot inside the mix's own folder, it's saved there. **Open session** (Ctrl+O) brings it back with every edit, and its stems are found in the folder beside it.
+- **Before a mix is saved**, its stems go into a working folder inside the app's data folder. Saving moves them into the project folder and deletes the working folder. If you close an unsaved mix that has stems, the app asks whether to save it first, because choosing **Discard** deletes those stems. Working folders left behind by a crash are cleaned up after two weeks.
+- **Save session as…** from a saved project copies its stems into the new project folder, so the original project keeps its own.
+- A session saved by an earlier version opens as before. The next time you save it, it becomes a project folder (the old `.lmm` file is left where it was). Stems that earlier versions kept in one shared folder are still used, and they're copied into the project when you save.
+- **To share a mix with a friend:** give them the `.lmm` file (or the whole project folder, to save them splitting the stems again) and a folder with the same songs. They open the file, point the app at their folder if it asks, and get exactly your mix to play or change. Songs are found by their content, so renamed or moved files are fine.
 - Visuals you imported travel inside the session file.
 - If songs can't be found, use **File → Find missing songs…** and choose the folder that has them.
 
@@ -464,7 +467,7 @@ Useful options: `--overlap-bars` (longest blend), `--tempo-mode`, `--no-effects`
 
 **No sound from Play.** The preview needs an audio output device. Exporting still works without one.
 
-**Where is my data kept?** Imported visuals are saved in a folder called `shaders` inside the app's data folder (a shader that needs textures or clips gets its own sub-folder there, with its files) (an older `visuals` folder is renamed automatically). Preferences are stored in the app's data folder for your account on your computer. Sessions (`.lmm`) and projects (`.lmv`) are saved wherever you choose.
+**Where is my data kept?** Imported visuals are saved in a folder called `shaders` inside the app's data folder (a shader that needs textures or clips gets its own sub-folder there, with its files) (an older `visuals` folder is renamed automatically). Preferences are stored in the app's data folder for your account on your computer. Sessions (`.lmm`) are saved in a project folder wherever you choose, with their stems. Visualization Studio projects (`.lmv`) are saved wherever you choose. An unsaved mix's stems sit in a working folder under `projects` in the app's data folder until it's saved.
 
 
 ## Troubleshooting: "OpenGL not available" (Linux and Steam Deck)
@@ -533,7 +536,7 @@ Updates keep you on the kind of download you have. **Help > About** says "with s
 
 Advanced: the normal download can also use the engine from a Python on your computer (`pip install "audio-separator[cpu]"`, then `LazyMixtapeMaker stems --python /path/to/python`, remembered from then on). You can split from the command line too: `LazyMixtapeMaker stems song.mp3 --out stems-folder` (`--best` for slightly cleaner stems at half the speed, `--force` to split again).
 
-What to expect: without a graphics card, splitting takes about as long as the song plays on a small two-core computer and uses about 3 GB of memory. Each song is split once; its stems are kept (about as much disk as the song as a WAV file). How clean the stems are depends on the music: the engine can leave a trace of a singer in the music or the other way round.
+What to expect: without a graphics card, splitting takes about as long as the song plays on a small two-core computer and uses about 3 GB of memory. Each song is split once per project; its stems are kept in the project folder (about as much disk as the song as a WAV file). How clean the stems are depends on the music: the engine can leave a trace of a singer in the music or the other way round.
 
 Note on licences: the engine's code is MIT, but the terms of the trained Demucs model are not clearly stated by its authors.
 

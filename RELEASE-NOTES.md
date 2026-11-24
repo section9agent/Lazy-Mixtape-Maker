@@ -1,20 +1,14 @@
-# Lazy Mixtape Maker 6.1.1 — The Whole Milk Update
+# Lazy Mixtape Maker 6.2
 
-A fix for small screens, on top of 6.1.
+## Project folders
+Every mix now has its own **project folder**, and the stems split for its songs are kept in it.
 
-## Fixed
-- **Steam Deck and small screens:** maximising the window on a 1280×800 screen no longer piles controls on top of each other in the **Visuals**, **Shader library**, **Video transitions** and song panels. A panel that's short on room now gets a scroll bar instead of squeezing its controls together. The shader and MilkDrop previews shrink to fit the space, and the window fits the Deck's screen even with large text. Drag the bar between the top and bottom halves of the window to give either half more room.
-
-## New in 6.1 (The Whole Milk Update), in case you missed it
-- **MilkDrop visuals:** the classic Winamp visualizer, drawn by projectM. It comes with 60 featured presets, the full Cream of the Crop pack (9,795 presets) in a new browser, and importing your own `.milk` files. A new **The app picks from** setting chooses between Shadertoy and MilkDrop.
-- **Faster previews:** play just **1 transition (2 songs)**, **4 songs**, or the **whole mix**.
-- **Timeline markers:** coloured transition zones with badges you can drag (blend length) and click (to edit). Effect markers are bigger and easy to move, lengthen, and nudge with the arrow keys.
-
-## Credits
-- projectM / libprojectM (LGPL-2.1): https://github.com/projectM-visualizer/projectm
-- Cream of the Crop preset pack, compiled by Jason Fletcher (ISOSCELES). Each preset belongs to its author, named in its file name.
-- MilkDrop texture pack: https://github.com/projectM-visualizer/presets-milkdrop-texture-pack
-- MilkDrop by Ryan Geiss / Nullsoft.
+- **Saving makes the project folder.** Choosing *Music/Sunday.lmm* saves *Music/Sunday/Sunday.lmm*, with a `stems` folder beside it holding each song's stems (and their deep analysis).
+- **An unsaved mix uses a working folder** in the app's data folder. Saving moves its stems into the project folder and deletes the working folder, so nothing is left behind.
+- **Opening a project finds its stems beside it.** Copy or move the whole folder (to another drive, or to a friend) and the stems go with it, so nothing needs splitting again.
+- **Save session as…** from a saved project copies the stems into the new project, so the original stays complete.
+- **Closing an unsaved mix that has stems asks first**, because choosing *Discard* deletes them. Working folders left behind by a crash are cleaned up after two weeks.
+- **Older sessions open as before.** The next save turns them into a project folder (the old `.lmm` stays where it was). Stems split by earlier versions in the old shared folder are still used, and they're copied into the project when you save.
 
 ## Downloads
 - **Windows, macOS, Linux:** the standard app.

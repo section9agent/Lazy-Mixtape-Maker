@@ -30,6 +30,8 @@ class AppState(QObject):
         self.shaders = shaders or ShaderLibrary()
         self.video = VideoSettings()
         self.file: Path | None = None
+        from .. import project
+        project.new_working()               # a working folder for the new mix's stems (see project.py)
         self.dirty = False
         self.sel = -1
         self.sel_fx: str | None = None
@@ -248,6 +250,9 @@ class AppState(QObject):
 
     # ---------------------------------------------------------------- sessions
     def new(self):
+        from .. import project
+        project.discard_working()           # (the mix being closed was saved or discarded already)
+        project.new_working()
         self.session = Session()
         self.video = VideoSettings()
         self.file, self.dirty, self.sel, self.sel_fx = None, False, -1, None
@@ -256,7 +261,14 @@ class AppState(QObject):
         self.library_changed.emit(); self.changed.emit(); self.title_changed.emit()
 
     def open(self, path, search_dirs=()):
+        from .. import project
         s = load_session(path, search_dirs)
+        project.discard_working()
+        lmm, folder = project.folder_for(Path(path))
+        if folder == Path(path).parent:
+            project.set_current(folder)     # a project folder: its stems are beside it
+        else:
+            project.new_working(s.name)     # a session saved by an older version: it becomes a project folder
         self.session = s
         self.video = restore_from_session(s, self.shaders)
         self.file, self.dirty, self.sel, self.sel_fx = Path(path), False, -1, None
@@ -264,14 +276,29 @@ class AppState(QObject):
         self.preview_path = None
         self.library_changed.emit(); self.changed.emit(); self.title_changed.emit()
 
-    def save(self, path=None):
-        path = Path(path or self.file)
+    def save(self, path=None) -> Path:
+        """Save the mix into its project folder (made beside `path` if needed - see project.folder_for).
+        Returns the session file it was saved as."""
+        from .. import project
+        path, folder = project.folder_for(Path(path or self.file))
+        folder.mkdir(parents=True, exist_ok=True)
         attach_to_session(self.session, self.video, self.shaders, self.plan)
         songinfo.prune(self.session.extra)
         self.session.name = path.stem
         save_session(self.session, path)
+        project.move_to(folder, song_ids=list(self.session.library))   # its stems come along
         self.file, self.dirty = path, False
         self.title_changed.emit()
+        return path
+
+    def has_unsaved_stems(self) -> bool:
+        """True when this mix hasn't been saved but has stems split for it (worth asking before throwing away)."""
+        from .. import project
+        cur = project.current()
+        if cur is None or not project.is_working(cur):
+            return False
+        root = project.stems_root(cur)
+        return root.is_dir() and any((d / "stems.json").exists() for d in root.iterdir())
 
     def relink(self, folder) -> list[str]:
         missing = relink(self.session, None, [folder])

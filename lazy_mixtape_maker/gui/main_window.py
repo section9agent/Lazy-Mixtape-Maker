@@ -82,6 +82,8 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         super().__init__()
         self.settings = QSettings(ORG, APP)
         self.state = AppState(shaders)
+        from .. import project
+        project.clean_old_working(keep=project.current())   # working folders a crash left behind, 2+ weeks old
         self.thumbs = ThumbCache(self)
         self.task: Worker | None = None
         self.progress: QProgressDialog | None = None
@@ -824,9 +826,12 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
 
     # ----------------------------------------------------------------- sessions
     def _maybe_save(self) -> bool:
-        if not self.state.dirty or not self.state.plan.tracks:
+        if not self.state.has_unsaved_stems() and (not self.state.dirty or not self.state.plan.tracks):
             return True
-        b = QMessageBox.question(self, APP, "Save changes to this mix first?",
+        msg = "Save changes to this mix first?"
+        if self.state.has_unsaved_stems():
+            msg += "\n\nIts stems are only kept if you save it (they go into its project folder)."
+        b = QMessageBox.question(self, APP, msg,
                                  QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard |
                                  QMessageBox.StandardButton.Cancel)
         if b == QMessageBox.StandardButton.Cancel:
@@ -855,7 +860,9 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         except Exception as e:  # noqa: BLE001
             QMessageBox.warning(self, APP, f"Couldn't open that session:\n{e}")
             return
-        self.settings.setValue("last_session_dir", str(Path(path).parent))
+        from .. import project
+        here = Path(path).parent
+        self.settings.setValue("last_session_dir", str(here.parent if project.current() == here else here))
         if self.state.session.missing():
             QMessageBox.information(self, APP, "Some of this session's songs weren't found next to the file. "
                                                "Choose the folder that has your copy of them.")
@@ -874,11 +881,15 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
             path = Path(p).with_suffix(".lmm")
             self.settings.setValue("last_session_dir", str(path.parent))
         try:
-            self.state.save(path)
+            self.setCursor(Qt.CursorShape.WaitCursor)        # (moving stems into the project folder can take a moment)
+            path = self.state.save(path)
         except Exception as e:  # noqa: BLE001
             QMessageBox.warning(self, APP, f"Couldn't save:\n{e}")
             return False
-        self.statusBar().showMessage(f"Saved {path}", 4000)
+        finally:
+            self.unsetCursor()
+        self.settings.setValue("last_session_dir", str(path.parent.parent))
+        self.statusBar().showMessage(f"Saved in the project folder {path.parent}", 6000)
         return True
 
     # -------------------------------------------------------------- refreshing
@@ -1009,6 +1020,8 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         self._player.close()
         self.thumbs.shutdown()
         shutil.rmtree(self.tmp, ignore_errors=True)
+        from .. import project
+        project.discard_working()          # an unsaved mix's working folder (its stems were offered for saving)
         ev.accept()
 
 

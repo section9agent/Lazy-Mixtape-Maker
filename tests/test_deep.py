@@ -120,7 +120,7 @@ def test_choose_per_song_with_undo_and_the_window(mixwin, monkeypatch):
 
     # it survives saving and opening the session again
     f = Path(st.paths[sid]).parent / "deep-test.lmm"
-    st.save(f)
+    f = st.save(f)                                       # (saved into its project folder, deep analysis and all)
     bpm_now = st.lib[sid].bpm
     st.new()
     st.open(f)
