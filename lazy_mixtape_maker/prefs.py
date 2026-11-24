@@ -5,7 +5,8 @@ import json
 
 from .visuals import data_dir
 
-_DEFAULTS = {"show_overlay": True, "auto_update": True}     # cover art + artist + title on every video, until switched off
+_DEFAULTS = {"show_overlay": True, "auto_update": True,
+             "copy_songs": True}     # saving a mix copies its songs into the project folder (songs/)     # cover art + artist + title on every video, until switched off
 
 
 def _file():
@@ -38,3 +39,8 @@ def set(key: str, value) -> None:  # noqa: A001
 def overlay_enabled() -> bool:
     """The master switch: when off, no video shows the cover / artist / title card."""
     return bool(get("show_overlay"))
+
+
+def copy_songs() -> bool:
+    """Saving a mix copies its songs into its project folder, so the project has everything it needs."""
+    return bool(get("copy_songs"))

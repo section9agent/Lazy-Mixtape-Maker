@@ -988,9 +988,14 @@ class MashupStudio(TaskMixin, QMainWindow):
         self.dirty = False
         self.refresh()
 
+    def _start_dir(self) -> Path:
+        """The open project's mashups folder once the mix is saved; otherwise where songs were last picked."""
+        from .. import project
+        return project.default_dir(project.MASHUPS) or Path(self.settings.value("last_dir", ""))
+
     def save(self) -> bool:
         if self.file is None:
-            f, _ = QFileDialog.getSaveFileName(self, "Save mashup", str(Path(self.settings.value("last_dir", "")) / (self.m.name + ".lmmash")), FILTER)
+            f, _ = QFileDialog.getSaveFileName(self, "Save mashup", str(self._start_dir() / (self.m.name + ".lmmash")), FILTER)
             if not f:
                 return False
             self.file = Path(f).with_suffix(".lmmash")
@@ -1033,7 +1038,7 @@ class MashupStudio(TaskMixin, QMainWindow):
             use()
 
     def _ask_export(self, title: str):
-        f, flt = QFileDialog.getSaveFileName(self, title, str(Path(self.settings.value("last_dir", "")) / (self.m.name + ".wav")),
+        f, flt = QFileDialog.getSaveFileName(self, title, str(self._start_dir() / (self.m.name + ".wav")),
                                              EXPORT_FILTER)
         if not f:
             return None

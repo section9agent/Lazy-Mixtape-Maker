@@ -350,14 +350,47 @@ tr, li { page-break-inside: avoid; }
 <hr />
 <h2 id="8-saving-sharing-and-reopening">8. Saving, sharing and reopening</h2>
 <ul>
-<li><strong>Save session</strong> (Ctrl+S) saves the mix as a <strong>project folder</strong> named after it, holding the <code>.lmm</code> session file and a <code>stems</code> folder with the stems split for its songs. Choosing <em>Music/Sunday.lmm</em> makes <em>Music/Sunday/Sunday.lmm</em>. If you pick a spot inside the mix's own folder, it's saved there. <strong>Open session</strong> (Ctrl+O) brings it back with every edit, and its stems are found in the folder beside it.</li>
-<li><strong>Before a mix is saved</strong>, its stems go into a working folder inside the app's data folder. Saving moves them into the project folder and deletes the working folder. If you close an unsaved mix that has stems, the app asks whether to save it first, because choosing <strong>Discard</strong> deletes those stems. Working folders left behind by a crash are cleaned up after two weeks.</li>
-<li><strong>Save session as…</strong> from a saved project copies its stems into the new project folder, so the original project keeps its own.</li>
-<li>A session saved by an earlier version opens as before. The next time you save it, it becomes a project folder (the old <code>.lmm</code> file is left where it was). Stems that earlier versions kept in one shared folder are still used, and they're copied into the project when you save.</li>
-<li><strong>To share a mix with a friend:</strong> give them the <code>.lmm</code> file (or the whole project folder, to save them splitting the stems again) and a folder with the same songs. They open the file, point the app at their folder if it asks, and get exactly your mix to play or change. Songs are found by their content, so renamed or moved files are fine.</li>
-<li>Visuals you imported travel inside the session file.</li>
-<li>If songs can't be found, use <strong>File → Find missing songs…</strong> and choose the folder that has them.</li>
+<li><strong>Save session</strong> (Ctrl+S) saves the mix as a <strong>project folder</strong> named after it, so everything the mix needs is in one place. Choosing <em>Music/Sunday.lmm</em> makes:</li>
 </ul>
+<table>
+<thead>
+<tr>
+<th>In <em>Music/Sunday/</em></th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Sunday.lmm</code></td>
+<td>The session: the mix, every edit, the video settings and the visuals you added</td>
+</tr>
+<tr>
+<td><code>songs/</code></td>
+<td>Copies of the mix's songs, with their saved analysis (so nothing is analysed again)</td>
+</tr>
+<tr>
+<td><code>stems/</code></td>
+<td>The stems split for its songs, and their deep analysis</td>
+</tr>
+<tr>
+<td><code>exports/</code></td>
+<td>Where <strong>Export audio</strong>, <strong>Export video</strong>, the cue sheet and <strong>Export audio + video</strong> save by default</td>
+</tr>
+<tr>
+<td><code>mashups/</code></td>
+<td>Where the Mashup Studio saves and exports by default while this project is open</td>
+</tr>
+</tbody>
+</table>
+<p>If you pick a spot inside the mix's own folder, it's saved there. <strong>Open session</strong> (Ctrl+O) brings it back with every edit, and it finds its songs and stems inside the folder. <strong>Back up or move the whole folder</strong> (another drive, another computer, a friend) and it opens complete, even if the original songs have since moved or been deleted.
+- <strong>Songs</strong> are copied in when you save, with a progress bar (<strong>Cancel</strong> stops the save and changes nothing). Songs you add later are copied in at the next save. If two different songs share a file name, the second one gets " (2)" added. The original files are left alone. To keep the project small instead, switch off <strong>Settings → Copy songs into the project folder</strong>. The session then refers to the songs where they are, as before.
+- <strong>Before a mix is saved</strong>, its stems go into a working folder inside the app's data folder. Saving moves them into the project folder and deletes the working folder. If you close an unsaved mix that has stems, the app asks whether to save it first, because choosing <strong>Discard</strong> deletes those stems. Working folders left behind by a crash are cleaned up after two weeks.
+- <strong>Save session as…</strong> from a saved project copies its stems into the new project folder, so the original project keeps its own.
+- A session saved by an earlier version opens as before. The next time you save it, it becomes a project folder (the old <code>.lmm</code> file is left where it was). Stems that earlier versions kept in one shared folder are still used, and they're copied into the project when you save.
+- <strong>To share a mix with a friend:</strong> give them the whole project folder. It has the songs and the stems, so they can open it and play it straight away. (The <code>.lmm</code> file on its own works too, with a folder of the same songs.)
+- <strong>Settings → Clear the old stem cache…</strong> deletes the stems that earlier versions kept in one shared folder, and shows how much space that frees. Saved projects keep their own copies. An older session that hasn't been saved since will split its songs again if it needs stems. They open the file, point the app at their folder if it asks, and get exactly your mix to play or change. Songs are found by their content, so renamed or moved files are fine.
+- Visuals you imported travel inside the session file.
+- If songs can't be found, use <strong>File → Find missing songs…</strong> and choose the folder that has them.</p>
 <hr />
 <h2 id="9-exporting-audio-and-the-cue-sheet">9. Exporting audio and the cue sheet</h2>
 <p><strong>Export audio</strong> (Ctrl+E) saves the finished mix as:</p>

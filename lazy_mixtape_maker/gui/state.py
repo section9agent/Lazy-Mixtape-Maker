@@ -276,17 +276,27 @@ class AppState(QObject):
         self.preview_path = None
         self.library_changed.emit(); self.changed.emit(); self.title_changed.emit()
 
-    def save(self, path=None) -> Path:
-        """Save the mix into its project folder (made beside `path` if needed - see project.folder_for).
-        Returns the session file it was saved as."""
-        from .. import project
+    def save(self, path=None, songs: dict | None = None) -> Path:
+        """Save the mix into its project folder (made beside `path` if needed - see project.folder_for), with
+        its stems and (when the preference is on) copies of its songs in songs/. Returns the session file.
+
+        songs: {song id: path} of copies already made (the window copies them first, with a progress bar)."""
+        from .. import prefs, project
         path, folder = project.folder_for(Path(path or self.file))
         folder.mkdir(parents=True, exist_ok=True)
+        if songs is None and prefs.copy_songs():
+            songs = project.collect_songs(self.session.paths, folder)
+        if songs:
+            for sid, p in songs.items():           # the session now points at the project's own copies
+                self.session.paths[sid] = p
+                if sid in self.session.library:
+                    self.session.library[sid].path = p
+            self.preview_path = None
         attach_to_session(self.session, self.video, self.shaders, self.plan)
         songinfo.prune(self.session.extra)
         self.session.name = path.stem
-        save_session(self.session, path)
         project.move_to(folder, song_ids=list(self.session.library))   # its stems come along
+        save_session(self.session, path)                                 # (written last: a whole project or none)
         self.file, self.dirty = path, False
         self.title_changed.emit()
         return path

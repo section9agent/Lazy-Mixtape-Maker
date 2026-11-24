@@ -180,3 +180,123 @@ def clean_old_working(keep=None, days: float = 14.0) -> int:
 def size(folder=None) -> int:
     root = stems_root(folder)
     return sum(f.stat().st_size for f in root.rglob("*") if f.is_file()) if root.exists() else 0
+
+
+# ------------------------------------------------------------------ everything in one place
+SONGS, EXPORTS, MASHUPS = "songs", "exports", "mashups"
+SIDECAR = ".lmmanalysis"            # a song's saved analysis, kept beside it (Song.mp3.lmmanalysis)
+
+
+def saved_folder() -> Path | None:
+    """The current project's folder once it's been saved (None while the mix is unsaved)."""
+    cur = _current
+    return cur if cur is not None and not is_working(cur) else None
+
+
+def default_dir(kind: str) -> Path | None:
+    """Where files of `kind` (exports, mashups...) go by default: that folder in the saved project, made if
+    needed; None for an unsaved mix (the caller falls back to wherever the user last saved)."""
+    f = saved_folder()
+    if f is None:
+        return None
+    d = f / kind
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    return d
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    try:
+        if a.stat().st_size != b.stat().st_size:
+            return False
+        from .audio_io import file_id
+        return file_id(a) == file_id(b)
+    except OSError:
+        return False
+
+
+def songs_to_copy(paths: dict, folder) -> list[tuple[str, Path]]:
+    """(song id, file) for the songs that aren't in the project's songs folder yet."""
+    dst = (Path(folder) / SONGS).resolve()
+    out = []
+    for sid, p in paths.items():
+        p = Path(p)
+        if not p.is_file():
+            continue
+        try:
+            p.resolve().relative_to(dst)
+            continue                      # already there
+        except ValueError:
+            out.append((sid, p))
+    return out
+
+
+class Cancelled(Exception):
+    pass
+
+
+def collect_songs(paths: dict, folder, progress=None, cancel=None) -> dict[str, str]:
+    """Copy the songs (with their saved analysis) into the project's songs folder.
+
+    Returns {song id: path of its copy} for every song now in the project (including ones already there).
+    A song with the same name as a different file already there gets " (2)" etc. added.
+    progress(fraction 0..1, file name); cancel() -> True stops it (raising Cancelled; copies made so far stay)."""
+    dst = Path(folder) / SONGS
+    todo = songs_to_copy(paths, folder)
+    out = {sid: str(p) for sid, p in paths.items() if Path(p).is_file()}
+    if not todo:
+        return out
+    dst.mkdir(parents=True, exist_ok=True)
+    total = sum(p.stat().st_size for _, p in todo) or 1
+    done = 0
+    for sid, src in todo:
+        if cancel and cancel():
+            raise Cancelled()
+        if progress:
+            progress(done / total, src.name)
+        target = dst / src.name
+        n = 2
+        while target.exists() and not _same_file(src, target):
+            target = dst / f"{src.stem} ({n}){src.suffix}"
+            n += 1
+        if not target.exists():
+            part = target.with_name(target.name + ".part")
+            shutil.copy2(src, part)
+            part.replace(target)
+        side = src.with_name(src.name + SIDECAR)
+        if side.is_file() and not target.with_name(target.name + SIDECAR).exists():
+            try:
+                shutil.copy2(side, target.with_name(target.name + SIDECAR))
+            except OSError:
+                pass
+        out[sid] = str(target)
+        done += src.stat().st_size
+    if progress:
+        progress(1.0, "")
+    return out
+
+
+# ------------------------------------------------------------------ the old shared cache
+def legacy_size() -> int:
+    """Bytes used by stems that versions before 6.2 kept in one shared folder (and unfinished splits)."""
+    n = 0
+    for root in (legacy_stems(), data_dir() / "stems-work"):
+        if root.is_dir():
+            n += sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
+    return n
+
+
+def clear_legacy() -> int:
+    """Delete the old shared stems folder (and leftovers of unfinished splits). Returns the bytes freed.
+    Projects keep their own copies; older sessions that relied on it will split those songs again if needed."""
+    freed = legacy_size()
+    with LOCK:
+        shutil.rmtree(legacy_stems(), ignore_errors=True)
+        work = data_dir() / "stems-work"
+        if work.is_dir():
+            for d in work.iterdir():          # (not a split that's running right now)
+                if d.name.endswith(".part") and time.time() - d.stat().st_mtime > 3600:
+                    shutil.rmtree(d, ignore_errors=True)
+    return freed

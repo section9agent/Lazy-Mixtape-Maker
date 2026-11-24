@@ -257,6 +257,14 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         self.a_info = act("Edit song info…", self.edit_song_info, "Ctrl+Shift+E", "Change the selected song's cover art, artist and title")
         self.a_quit = act("Quit", self.close, "Ctrl+Q")
         self.a_about = act("About Lazy Mixtape Maker…", self.about)
+        self.a_copy_songs = act("Copy songs into the project folder",
+                                lambda on: prefs.set("copy_songs", bool(on)))
+        self.a_copy_songs.setCheckable(True)
+        self.a_copy_songs.setChecked(prefs.copy_songs())
+        self.a_copy_songs.setToolTip("On by default: saving a mix copies its songs into the project's songs folder, "
+                                     "so the project has everything it needs.")
+        self.a_clear_old = act("Clear the old stem cache…", self.clear_old_stems)
+        self.a_clear_old.setToolTip("Delete the stems earlier versions kept in one shared folder.")
         self.a_update = act("Check for updates…", lambda: self.check_updates(True))
         self.a_auto_update = act("Check for updates automatically", lambda on: updater.set_enabled(bool(on)))
         self.a_auto_update.setCheckable(True)
@@ -278,6 +286,9 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         tm.addAction(self.a_mashup)
         sm = m.addMenu("&Settings")
         sm.addAction(self.a_overlay)
+        sm.addAction(self.a_copy_songs)
+        sm.addSeparator()
+        sm.addAction(self.a_clear_old)
         hm = m.addMenu("&Help")
         for a in (self.a_update, self.a_auto_update, None, self.a_about):
             hm.addAction(a) if a else hm.addSeparator()
@@ -663,11 +674,14 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
 
     # --------------------------------------------------------------- exporting
     def _ask_save(self, title, filters, default_name):
-        d = str(self.settings.value("last_export_dir", ""))
+        from .. import project
+        here = project.default_dir(project.EXPORTS)          # a saved project renders into its exports folder
+        d = str(here) if here else str(self.settings.value("last_export_dir", ""))
         path, chosen = QFileDialog.getSaveFileName(self, title, str(Path(d) / default_name), filters)
         if not path:
             return None
-        self.settings.setValue("last_export_dir", str(Path(path).parent))
+        if here is None:
+            self.settings.setValue("last_export_dir", str(Path(path).parent))
         return Path(path), chosen
 
     def _mix_name(self) -> str:
@@ -880,9 +894,17 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
                 return False
             path = Path(p).with_suffix(".lmm")
             self.settings.setValue("last_session_dir", str(path.parent))
+        from .. import prefs, project
+        songs = None
+        if prefs.copy_songs():                               # copies of the songs go into the project's songs folder
+            _lmm, folder = project.folder_for(path)
+            if project.songs_to_copy(self.state.session.paths, folder):
+                songs = self._copy_songs(folder)
+                if songs is None:
+                    return False                             # cancelled: nothing else changed
         try:
             self.setCursor(Qt.CursorShape.WaitCursor)        # (moving stems into the project folder can take a moment)
-            path = self.state.save(path)
+            path = self.state.save(path, songs=songs)
         except Exception as e:  # noqa: BLE001
             QMessageBox.warning(self, APP, f"Couldn't save:\n{e}")
             return False
@@ -891,6 +913,59 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         self.settings.setValue("last_session_dir", str(path.parent.parent))
         self.statusBar().showMessage(f"Saved in the project folder {path.parent}", 6000)
         return True
+
+    def _copy_songs(self, folder) -> dict | None:
+        """Copy the mix's songs into the project folder with a progress bar. None if cancelled or it failed."""
+        import threading
+        import time as _time
+        from PySide6.QtWidgets import QApplication, QProgressDialog
+        from .. import project
+        dlg = QProgressDialog("Copying the songs into the project folder…", "Cancel", 0, 1000, self)
+        dlg.setWindowTitle(APP)
+        dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        dlg.setMinimumDuration(300)
+        state = {"f": 0.0, "name": "", "out": None, "err": None}
+        stop = threading.Event()
+
+        def run():
+            try:
+                state["out"] = project.collect_songs(dict(self.state.session.paths), folder,
+                                                     progress=lambda f, n: state.update(f=f, name=n),
+                                                     cancel=stop.is_set)
+            except project.Cancelled:
+                pass
+            except Exception as e:  # noqa: BLE001
+                state["err"] = e
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        while t.is_alive():
+            if dlg.wasCanceled():
+                stop.set()
+            dlg.setValue(int(state["f"] * 1000))
+            if state["name"]:
+                dlg.setLabelText(f"Copying the songs into the project folder…\n{state['name']}")
+            QApplication.processEvents()
+            _time.sleep(0.03)
+        dlg.close()
+        if state["err"] is not None:
+            QMessageBox.warning(self, APP, f"Couldn't copy the songs into the project folder:\n{state['err']}")
+            return None
+        return state["out"]
+
+    def clear_old_stems(self):
+        from .. import project
+        n = project.legacy_size()
+        if n == 0:
+            QMessageBox.information(self, APP, "There are no stems left in the old shared folder.")
+            return
+        msg = (f"Earlier versions kept every song's stems in one shared folder. It's using {n / 1e9:.1f} GB."
+               if n >= 1e8 else f"Earlier versions kept every song's stems in one shared folder. It's using {n / 1e6:.0f} MB.")
+        msg += ("\n\nDelete it? Saved projects keep their own copies of their stems. Older sessions that haven't been "
+                "saved since will split their songs again when they need stems.")
+        if QMessageBox.question(self, APP, msg) != QMessageBox.StandardButton.Yes:
+            return
+        freed = project.clear_legacy()
+        self.statusBar().showMessage(f"Freed {freed / 1e6:.0f} MB.", 6000)
 
     # -------------------------------------------------------------- refreshing
     def _on_changed(self):

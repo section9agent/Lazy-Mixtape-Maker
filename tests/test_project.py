@@ -116,6 +116,8 @@ def win(env, monkeypatch):
     w = MainWindow()
     yield app, w
     w.state.dirty = False
+    from PySide6.QtWidgets import QMessageBox           # (an unsaved mix with stems asks before closing)
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Discard))
     w.close()
 
 
@@ -180,3 +182,91 @@ def test_opening_an_older_session_saves_it_as_a_project(win, env):
     w.state.dirty = True
     assert w.save_session()
     assert w.state.file == env / "Music" / "old" / "old.lmm"
+
+
+# ------------------------------------------------------------------ songs, exports and the old cache
+def test_songs_are_copied_with_their_analysis(env):
+    folder = env / "Music" / "P"
+    src = env / "songs"
+    (src / "A - one.wav.lmmanalysis").write_text("{}")
+    paths = {f"id{i}": str(p) for i, p in enumerate(sorted(src.glob("*.wav")))}
+    seen = []
+    got = project.collect_songs(paths, folder, progress=lambda f, n: seen.append(f))
+    assert all(Path(p).parent == folder / "songs" for p in got.values())
+    assert (folder / "songs" / "A - one.wav.lmmanalysis").exists()            # no analysing it again
+    assert seen[-1] == 1.0
+    assert project.songs_to_copy(got, folder) == []                           # nothing left to copy
+    # a different song with the same name doesn't overwrite the one already there
+    other = env / "elsewhere"
+    other.mkdir()
+    synth.make_song(other / "A - one.wav", 90, 3, False, structure=TINY)
+    again = project.collect_songs({"x": str(other / "A - one.wav")}, folder)
+    assert Path(again["x"]).name == "A - one (2).wav"
+
+
+def test_copying_can_be_cancelled(env):
+    paths = {f"id{i}": str(p) for i, p in enumerate(sorted((env / "songs").glob("*.wav")))}
+    with pytest.raises(project.Cancelled):
+        project.collect_songs(paths, env / "P", cancel=lambda: True)
+
+
+def test_a_saved_project_has_everything_and_can_move(win, env, monkeypatch):
+    import shutil
+    app, w = win
+    s = _fill(w, env)
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(env / "Music" / "Trip.lmm"), "")))
+    assert w.save_session()
+    folder = env / "Music" / "Trip"
+    doc = json.loads((folder / "Trip.lmm").read_text())
+    assert all(x["relpath"].startswith("songs/") for x in doc["songs"])
+    assert {p.name for p in (folder / "songs").iterdir()} >= {"A - one.wav", "A - two.wav"}
+    # exports default to the project's exports folder
+    assert project.default_dir(project.EXPORTS) == folder / "exports"
+    # move the whole project somewhere else and lose the original songs: it still opens complete
+    w.state.dirty = False
+    w.state.new()
+    (env / "Backup").mkdir()
+    shutil.move(str(folder), str(env / "Backup" / "Trip"))
+    shutil.rmtree(env / "songs")
+    w.load_session(env / "Backup" / "Trip" / "Trip.lmm")
+    assert not w.state.session.missing()
+    assert all(Path(p).is_relative_to(env / "Backup" / "Trip" / "songs") for p in w.state.session.paths.values())
+    assert all(stems.cached(sid) for sid in s.paths)
+
+
+def test_copying_songs_can_be_switched_off(win, env, monkeypatch):
+    from lazy_mixtape_maker import prefs
+    app, w = win
+    prefs.set("copy_songs", False)
+    _fill(w, env)
+    saved = w.state.save(env / "Music" / "Light.lmm")
+    assert not (saved.parent / "songs").exists()
+    assert all(Path(p).parent == env / "songs" for p in w.state.session.paths.values())
+
+
+def test_unsaved_mixes_export_where_you_last_did(env):
+    project.new_working()
+    assert project.default_dir(project.EXPORTS) is None
+
+
+def test_clearing_the_old_stem_cache(env):
+    song = env / "songs" / "A - one.wav"
+    _split(song)                                           # (no project: the old shared folder)
+    assert project.legacy_size() > 0
+    freed = project.clear_legacy()
+    assert freed > 0 and project.legacy_size() == 0 and not project.legacy_stems().exists()
+
+
+def test_cancelling_the_song_copy_cancels_the_save(win, env, monkeypatch):
+    app, w = win
+    work = project.current()
+    _fill(w, env)
+    from PySide6.QtWidgets import QFileDialog
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(env / "Music" / "Nope.lmm"), "")))
+    monkeypatch.setattr(type(w), "_copy_songs", lambda self, folder: None)    # the user pressed Cancel
+    assert not w.save_session()
+    assert w.state.file is None and project.current() == work and work.exists()
+    assert not (env / "Music" / "Nope" / "Nope.lmm").exists()
