@@ -182,7 +182,8 @@ class MashupTimeline(QWidget):
             src = c.src_start + ((xs - r.left()) + k / 3.0) / self.pps * rate
             idx = np.clip((src / mm.WAVE_STEP).astype(int), 0, len(w) - 1)
             amp = np.maximum(amp, w[idx])
-        amp *= 10 ** (min(c.gain_db, 6.0) / 20)
+        lvl = 0.0 if (c.stem == "vocals" and st.m.vocal_level != "off") else mm.song_gain_db(st.m, st.lib, c.song)
+        amp *= 10 ** (min(c.gain_db + lvl, 6.0) / 20)
         amp = np.minimum(amp, 1.0)
         top, bot = r.top() + 16, r.bottom() - 3
         mid, half = (top + bot) / 2, (bot - top) / 2
@@ -457,6 +458,11 @@ class MashupStudio(TaskMixin, QMainWindow):
         vrow.addWidget(QLabel("to"))
         vrow.addWidget(self.vlufs)
         f.addRow("Level vocals", vrow)
+        self.lsongs = QCheckBox("Play both songs at the same loudness")
+        self.lsongs.setToolTip("Each song's loudness is measured when it's imported; this brings both to the same "
+                               "level, so a quiet recording isn't drowned out (your clip gains still apply on top)")
+        f.addRow(self.lsongs)
+        self.lsongs.toggled.connect(lambda on: self._set(lambda m: setattr(m, "level_songs", bool(on))))
         self.vlevel.currentIndexChanged.connect(lambda _x: self._set(lambda m: setattr(m, "vocal_level", self.vlevel.currentData())))
         self.vlufs.editingFinished.connect(lambda: self._set(lambda m: setattr(m, "vocal_lufs", float(self.vlufs.value()))))
         self.beat.toggled.connect(lambda on: self._set(lambda m: setattr(m, "beat_match", bool(on))))
@@ -668,6 +674,7 @@ class MashupStudio(TaskMixin, QMainWindow):
             for i in (0, 1):
                 self.pitch[i].setValue(-13 if m.songs[i].pitch is None else m.songs[i].pitch)
             self.vlevel.setCurrentIndex(self.vlevel.findData(m.vocal_level))
+            self.lsongs.setChecked(m.level_songs)
             self.vlufs.setValue(m.vocal_lufs)
             self.vlufs.setEnabled(m.vocal_level != "off")
             self._load_waves()

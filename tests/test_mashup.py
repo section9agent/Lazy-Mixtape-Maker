@@ -26,6 +26,7 @@ def songs(tmp_path, monkeypatch):
     assert not err
     ids = {Path(p).stem: sid for sid, p in paths.items()}
     m = mm.Mashup()
+    m.level_songs = False          # (these tests measure the stems' own levels; levelling has its own test)
     m.songs = [mm.MashupSong(paths[ids["a"]], ids["a"]), mm.MashupSong(paths[ids["b"]], ids["b"])]
     return m, lib, paths
 
@@ -158,3 +159,23 @@ def test_needs_stems(songs):
     stems.forget(m.songs[0].song_id)
     with pytest.raises(mm.MashupError):
         mm.Renderer().render(m, lib, paths)
+
+
+def test_songs_are_played_at_the_same_loudness(songs):
+    """A quiet recording and a loud one come out at the same level (from each song's loudness, measured on import)."""
+    m, lib, paths = songs
+    m.key_match = m.beat_match = False
+    a, b = (lib[x.song_id] for x in m.songs)
+    a.loudness_lufs, b.loudness_lufs = -10.0, -22.0       # a mastered loud, b recorded quietly
+    m.clips = [mm.Clip(song=0, stem="bass", start=0, src_start=4, src_end=14),
+               mm.Clip(song=1, stem="bass", start=0, src_start=4, src_end=14)]
+    m.level_songs = True
+    assert mm.song_gain_db(m, lib, 0) == pytest.approx(-6.0) and mm.song_gain_db(m, lib, 1) == pytest.approx(6.0)
+    audio = mm.Renderer().render(m, lib, paths)
+    ga, gb = tone(audio, "a", "bass", 2, 8), tone(audio, "b", "bass", 2, 8)
+    assert gb / ga == pytest.approx(10 ** (12 / 20), rel=0.15)   # b brought up 6 dB, a down 6 dB
+    m.level_songs = False
+    flat = mm.Renderer().render(m, lib, paths)
+    assert tone(flat, "b", "bass", 2, 8) / tone(flat, "a", "bass", 2, 8) == pytest.approx(1.0, rel=0.15)
+    assert mm.Mashup.from_dict(json.loads(json.dumps(m.to_dict()))).level_songs is False
+    assert mm.Mashup.from_dict({"songs": [], "clips": []}).level_songs is True        # older files: on

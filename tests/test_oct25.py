@@ -319,8 +319,19 @@ def test_live_video_preview_follows_the_timeline(tmp_path, monkeypatch):
         assert len(got) > n and pv.time.text().startswith("0:20")
         img = got[-1]
         assert img.width() == 480 and img.height() == 270
+        # closing and opening it again draws afresh from the new moment (it used to stay on the old picture)
+        pv.close()
+        spin(0.5)
+        w._seek(40.0)
+        n = len(got)
+        w.open_video_preview()
+        assert w._vpreview is pv and pv.worker.isRunning() and pv.timer.isActive()
+        pv.worker.frame.connect(lambda img, tag: got.append(img))     # (in case a new drawing thread was made)
+        spin(20.0, lambda: len(got) > n)
+        assert len(got) > n and pv.time.text().startswith("0:40")
     finally:
-        pv.close()                          # always stop the drawing thread, or Qt aborts at exit
+        pv.close()
+        pv._shutdown()                      # always stop the drawing thread, or Qt aborts at exit
         w.state.dirty = False
         w.close()
 

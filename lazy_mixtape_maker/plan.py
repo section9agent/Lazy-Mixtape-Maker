@@ -434,7 +434,7 @@ def recompute(plan: MixPlan, lib: dict[str, SongAnalysis], regen_effects: bool =
                     best = (c, p)
             t.pitch = best[1]
         prev = ((an.key_tonic + t.pitch) % 12, an.key_mode)
-        t.gain_db = float(np.clip(s.track_lufs - an.loudness_lufs, -12, 12))
+        t.gain_db = float(np.clip(s.track_lufs - an.loudness_lufs, -20, 15))   # every song at the same loudness
         if t.auto_bounds:
             t.src_start, t.src_end = default_bounds(an, s, t.rate)
 

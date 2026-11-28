@@ -74,13 +74,14 @@ class Mashup:
     name: str = "Untitled mashup"
     vocal_level: str = "off"     # off | gentle | medium | strong: LUFS Lab's voice leveler on the vocal stems
     vocal_lufs: float = -18.0    # loudness the leveled vocals are set to
+    level_songs: bool = True     # play both songs at the same loudness (each measured when it was imported)
 
     # ---------------------------------------------------------------- saving
     def to_dict(self) -> dict:
         return {"format": FORMAT, "version": 1, "name": self.name, "beat_match": self.beat_match,
                 "tempo_from": self.tempo_from, "custom_bpm": self.custom_bpm, "key_match": self.key_match,
                 "key_from": self.key_from, "vocal_level": self.vocal_level, "vocal_lufs": self.vocal_lufs,
-                "songs": [asdict(s) for s in self.songs], "clips": [asdict(c) for c in self.clips]}
+                "level_songs": self.level_songs, "songs": [asdict(s) for s in self.songs], "clips": [asdict(c) for c in self.clips]}
 
     @classmethod
     def from_dict(cls, d: dict) -> "Mashup":
@@ -97,7 +98,8 @@ class Mashup:
                    key_from=d.get("key_from", "a") if d.get("key_from") in ("a", "b") else "a",
                    name=str(d.get("name") or "Untitled mashup"),
                    vocal_level=d.get("vocal_level", "off") if d.get("vocal_level") in VOCAL_LEVELS else "off",
-                   vocal_lufs=float(min(-6.0, max(-36.0, d.get("vocal_lufs", -18.0)))))
+                   vocal_lufs=float(min(-6.0, max(-36.0, d.get("vocal_lufs", -18.0)))),
+                   level_songs=bool(d.get("level_songs", True)))
 
     def save(self, file) -> None:
         Path(file).write_text(json.dumps(self.to_dict(), indent=1), encoding="utf-8")
@@ -133,6 +135,17 @@ def tempo(m: Mashup, lib: dict) -> float:
     i = 0 if m.tempo_from == "a" else 1
     sid = m.songs[i].song_id
     return float(lib[sid].bpm) if sid in lib else 120.0
+
+
+SONG_LUFS = -16.0                # what "level the songs" brings each song to (the mixes use the same)
+
+
+def song_gain_db(m: Mashup, lib: dict, i: int) -> float:
+    """The gain that brings song i to SONG_LUFS (0 when levelling is off or the song isn't analysed)."""
+    an = lib.get(m.songs[i].song_id)
+    if not m.level_songs or an is None or not np.isfinite(getattr(an, "loudness_lufs", np.nan)):
+        return 0.0
+    return float(np.clip(SONG_LUFS - an.loudness_lufs, -20.0, 15.0))
 
 
 def rate(m: Mashup, lib: dict, i: int) -> float:
@@ -495,7 +508,8 @@ class Renderer:
             lead = max(0, -a)                                         # a clip may start before the song does
             seg = audio[:, max(0, a):a + L].astype(np.float32, copy=True)
             seg = np.pad(seg, ((0, 0), (lead, max(0, L - lead - seg.shape[1]))))[:, :L]
-            env = np.full(L, 10 ** (c.gain_db / 20), np.float32)
+            lvl = 0.0 if (c.stem == "vocals" and m.vocal_level != "off") else song_gain_db(m, lib, c.song)
+            env = np.full(L, 10 ** ((c.gain_db + lvl) / 20), np.float32)      # (leveled vocals are set already)
             fi, fo = min(L, int(c.fade_in * SR)), min(L, int(c.fade_out * SR))
             if fi > 0:
                 env[:fi] *= np.sin(np.linspace(0, math.pi / 2, fi)) ** 2

@@ -75,17 +75,24 @@ class VideoPreviewWindow(QWidget):
         row.addWidget(self.b_play); row.addWidget(self.time); row.addWidget(self.note, 1); row.addWidget(self.overlay)
         lay.addLayout(row)
 
-        self.worker = FrameWorker(480, 270, self)
-        self.worker.frame.connect(self._frame)
-        self.worker.unavailable.connect(lambda m: self.screen.setText("The live preview needs OpenGL 3.3.\n" + m[:240]))
-        self.worker.failed.connect(lambda m, _t: self.note.setText("Couldn't draw a frame: " + m[-120:]))
-        self.worker.start()
+        self.worker = None
+        self._fresh = True                        # the next frame starts the visuals afresh
+        self._start_worker()
         main.state.changed.connect(self._invalidate)
         main.state.library_changed.connect(self._invalidate)
         self.timer = QTimer(self)
         self.timer.setInterval(33)
         self.timer.timeout.connect(self._tick)
         self.timer.start()
+
+    def _start_worker(self):
+        if self.worker is not None and self.worker.isRunning():
+            return
+        self.worker = FrameWorker(480, 270, self)
+        self.worker.frame.connect(self._frame)
+        self.worker.unavailable.connect(lambda m: self.screen.setText("The live preview needs OpenGL 3.3.\n" + m[:240]))
+        self.worker.failed.connect(lambda m, _t: self.note.setText("Couldn't draw a frame: " + m[-120:]))
+        self.worker.start()
 
     # -------------------------------------------------------------- state
     def _invalidate(self):
@@ -154,8 +161,11 @@ class VideoPreviewWindow(QWidget):
             return
         self._last, self._dirty = t, False
         audio, k = self._audio, int(t * 30)
+        fresh, self._fresh = self._fresh, False
 
         def job(r):
+            if fresh:                              # reopened: nothing carried over from the last preview
+                r.reset_state()
             if r.audio is not audio:
                 r.audio, r.last_t = audio, -1.0
             return comp.draw(r, t, k)
@@ -171,15 +181,26 @@ class VideoPreviewWindow(QWidget):
         self._dirty = True
 
     def showEvent(self, e):
+        """Opened (again): start drawing from the current moment, with nothing left from the last time."""
         super().showEvent(e)
+        self._start_worker()
+        self._comp = None
+        self._last = None
+        self._fresh = True
         self._dirty = True
+        self.screen.setText("Starting…")
+        if not self.timer.isActive():
+            self.timer.start()
 
     def closeEvent(self, e):
-        self._shutdown()
+        """Closing just pauses it (the main window keeps this window and shows it again)."""
+        self.timer.stop()
         super().closeEvent(e)
 
     def _shutdown(self):
+        """For good: when the app closes."""
         self.timer.stop()
         self._stop.set()
-        self.worker.stop()
-        self.worker.wait(3000)
+        if self.worker is not None:
+            self.worker.stop()
+            self.worker.wait(3000)

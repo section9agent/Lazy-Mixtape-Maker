@@ -702,6 +702,27 @@ class GLRenderer:
         self.comp_vao.render(self.mgl.TRIANGLE_STRIP)
         return self.out.read(components=3)
 
+    def reset_state(self):
+        """Start every visual afresh (feedback buffers cleared, MilkDrop presets restarted, a black picture), as
+        when a preview is opened again - nothing from what was drawn before shows through."""
+        for inst in self.programs.values():
+            try:
+                inst.reset()
+            except Exception:  # noqa: BLE001
+                pass
+        if self.milk is not None:
+            try:
+                self.milk.release()
+            except Exception:  # noqa: BLE001
+                pass
+            self.milk = None
+        for _tex, fbo in self.scene:
+            fbo.use()
+            fbo.clear(0.0, 0.0, 0.0, 1.0)
+        self.out.use()
+        self.out.clear(0.0, 0.0, 0.0)
+        self.last_t = -1.0
+
     def release(self):
         if self.milk is not None:
             try:

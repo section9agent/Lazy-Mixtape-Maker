@@ -99,3 +99,37 @@ def test_real_engine_if_present(data):
     assert sorted(got) == sorted(stems.STEMS)
     meta = json.loads((next(iter(got.values())).parent / "stems.json").read_text())
     assert meta["model"] == stems.MODEL
+
+
+def _mp4(path, wav=None, audio=True):
+    import subprocess
+    from lazy_mixtape_maker import audio_io
+    cmd = [audio_io.ffmpeg(), "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=blue:s=64x36:r=10:d=3"]
+    if audio:
+        cmd += ["-i", str(wav), "-shortest", "-c:a", "aac"]
+    subprocess.run(cmd + ["-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)], check=True)
+    return path
+
+
+def test_video_files_are_split_from_their_soundtrack(data, monkeypatch):
+    """The stem engine can't open video files: it's given the soundtrack, taken out as a WAV file."""
+    monkeypatch.setattr(stems, "engine_python", lambda: sys.executable)
+    video = _mp4(data / "clip.mp4", data / "song.wav")
+    calls = []
+    got = stems.split(video, runner=fake_runner(calls))
+    src = Path(calls[0][-5])
+    assert src.suffix == ".wav" and src.name == "source.wav"
+    assert set(got) == set(stems.STEMS)
+    assert not any(p.name == "source.wav" for p in got.values())
+    assert not (stems.song_dir(stems.file_id(video)) / "source.wav").exists()   # (not kept with the stems)
+    calls.clear()
+    stems.split(data / "song.wav", runner=fake_runner(calls))                     # an audio file goes in as it is
+    assert Path(calls[0][-5]) == data / "song.wav"
+
+
+def test_a_video_without_sound_says_so(data, monkeypatch):
+    monkeypatch.setattr(stems, "engine_python", lambda: sys.executable)
+    silent = _mp4(data / "silent.mp4", audio=False)
+    with pytest.raises(stems.StemsError) as e:
+        stems.split(silent, runner=fake_runner([]))
+    assert "silent.mp4" in str(e.value)

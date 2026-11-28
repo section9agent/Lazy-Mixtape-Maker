@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from . import prefs
@@ -199,6 +200,33 @@ def _run_worker(cmd, progress, cancel, status: Path | None = None):
     return done
 
 
+ENGINE_READS = {".wav", ".flac", ".mp3", ".ogg"}     # what the stem engine opens by itself
+
+
+def engine_input(path: Path, work: Path, cancel=None) -> Path:
+    """The file to give the stem engine: the song itself when the engine can read it; otherwise (a video file,
+    .m4a, ...) its sound, taken out with the app's own ffmpeg as a WAV file in `work`."""
+    if path.suffix.lower() in ENGINE_READS:
+        return path
+    import subprocess
+    from .audio_io import ffmpeg
+    out = work / "source.wav"
+    cmd = [ffmpeg(), "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", str(path),
+           "-map", "0:a:0", "-vn", "-sn", "-dn", "-ac", "2", "-ar", "44100", "-c:a", "pcm_f32le", str(out)]
+    kw = {"creationflags": 0x08000000} if sys.platform == "win32" else {}      # (no console window on Windows)
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, **kw)
+    while proc.poll() is None:
+        if cancel and cancel():
+            proc.kill()
+            raise StemsError("Cancelled")
+        time.sleep(0.1)
+    err = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
+    if proc.returncode != 0 or not out.exists() or out.stat().st_size < 1024:
+        raise StemsError(f"Couldn't take the sound out of {path.name} for the stem engine: "
+                         f"{err.strip()[-300:] or 'it has no audio track'}")
+    return out
+
+
 def split(path, song_id: str | None = None, progress=None, cancel=None, force: bool = False, runner=_run_worker,
           shifts: int = SHIFTS) -> dict[str, Path]:
     """Split `path` into stems (or return the cached ones). progress(fraction 0..1), cancel() -> bool."""
@@ -216,8 +244,11 @@ def split(path, song_id: str | None = None, progress=None, cancel=None, force: b
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     try:
-        done = runner(worker_command(py) + [str(path), str(work), str(models_dir()), MODEL, str(shifts)], progress, cancel)
+        src = engine_input(path, work, cancel)
+        done = runner(worker_command(py) + [str(src), str(work), str(models_dir()), MODEL, str(shifts)], progress, cancel)
         (work / "status.jsonl").unlink(missing_ok=True)
+        if src != path:
+            src.unlink(missing_ok=True)
         got = sorted(s for s in done.get("stems", {}) if (work / f"{s}.flac").exists())
         if not got:
             raise StemsError("The stem engine produced no stems.")

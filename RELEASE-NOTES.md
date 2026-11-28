@@ -24,6 +24,13 @@ Sunday/
 ## Clear the old stem cache
 - **Settings → Clear the old stem cache…** deletes the stems that earlier versions kept in one shared folder and shows how much space it frees. Saved projects keep their own copies.
 
+## Also new
+- **Every song is levelled to the same loudness**, from its loudness measured when it's added. A quiet recording and a loud master now sit at the same volume in mixes (the range is now +15 to -20 dB, up from ±12) and in the **Mashup Studio** (new: **Play both songs at the same loudness**, on by default). Your files are never changed.
+
+## Fixed
+- **Stems for video files:** splitting a video file (mp4, mkv, mov…) failed with "not a recognized format". The app now takes the sound out and gives that to the stem engine. Other formats it can't open itself, like m4a, work too.
+- **Video preview stuck on an old picture:** closing the video preview and opening it again showed a still frame from the first time. It now starts afresh from wherever the playhead is.
+
 ## Downloads
 - **Windows, macOS, Linux:** the standard app.
 - **-Stems** versions: the same, plus the stem engine (stem transitions, Mashup Studio, deep analysis) built in.

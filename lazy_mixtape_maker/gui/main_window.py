@@ -1091,6 +1091,7 @@ class MainWindow(UpdateMixin, TaskMixin, QMainWindow):
         vp = getattr(self, "_vpreview", None)
         if vp is not None:
             vp.close()
+            vp._shutdown()
         self.library.shutdown()
         self._player.close()
         self.thumbs.shutdown()
